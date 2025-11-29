@@ -5,7 +5,7 @@ fall within the new limits specified by the user.
 """
 
 import Graph
-import vcl
+import vcl # type: ignore
 import os
 
 # Import common utilities
@@ -342,4 +342,4 @@ Action = Graph.CreateAction(
 )
 
 # Add to Plugins -> Morphing menu
-Graph.AddActionToMainMenu(Action, TopMenu="Plugins", SubMenus=["Graphîa", "Morphing"])
+Graph.AddActionToMainMenu(Action, TopMenu="Plugins", SubMenus=["Graphîa", "Morphing"]) # type: ignore

@@ -5,3 +5,5 @@
 from . import signal_info
 from . import resample
 from . import morph
+from . import apply_function
+from . import linear_combination
