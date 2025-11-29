@@ -1,0 +1,46 @@
+;This file was created by Graph (http://www.padowan.dk)
+;Do not change this file from other programs.
+[Graph]
+Version = 4.5.0.586
+MinVersion = 2.5
+OS = Windows NT 6.2 
+
+[Axes]
+xMin = -12
+xMax = 12
+xTickUnit = 0.5
+xGridUnit = 0.5
+xShowGrid = 1
+xLabel = t [s]
+yMin = -0.976598520269033
+yMax = 0.976593199848748
+yTickUnit = 0.1
+yGridUnit = 0.1
+yShowGrid = 1
+AxesColor = 0x005F5F5F
+GridColor = clSilver
+NumberFont = Consolas,10,clBlack
+LabelFont = Consolas,12,clBlack,B
+LegendFont = Consolas,10,clBlack
+ShowLegend = 1
+Radian = 1
+Title = Graphîa Demo
+TitleFont = Unispace,20,clBlack,B
+LegendPlacement = 0
+LegendPos = 0.147704731973885,-1.54991613520172
+
+[Func1]
+FuncType = 0
+y = sin(x) * e^(-x^2/10)
+LegendText = Damped oscillation
+From = -10
+To = 10
+Color = clRed
+
+[Data]
+TextLabelCount = 0
+FuncCount = 1
+PointSeriesCount = 0
+ShadeCount = 0
+RelationCount = 0
+

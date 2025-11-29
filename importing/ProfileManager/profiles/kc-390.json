@@ -1,0 +1,47 @@
+{
+  "xaxis": {
+    "min": -18.5224,
+    "max": 203.74640000000002,
+    "title": "tiempo [h]"
+  },
+  "yaxis": {
+    "min": -1407.7715,
+    "max": 4594.1065,
+    "title": "Carga [daN]"
+  },
+  "config": {
+    "title": "Probeta de Fragilización KC-390 - Tracción 200 hs",
+    "show_legend": true,
+    "legend_placement": 0
+  },
+  "fonts": {
+    "label": {
+      "name": "Consolas",
+      "size": 12,
+      "color": 0,
+      "style": [
+        "fsBold"
+      ]
+    },
+    "number": {
+      "name": "Consolas",
+      "size": 10,
+      "color": 0,
+      "style": []
+    },
+    "legend": {
+      "name": "Consolas",
+      "size": 10,
+      "color": 0,
+      "style": []
+    },
+    "title": {
+      "name": "Unispace",
+      "size": 20,
+      "color": 0,
+      "style": [
+        "fsBold"
+      ]
+    }
+  }
+}
