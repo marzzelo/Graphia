@@ -97,6 +97,7 @@ Applies a Gaussian smoothing filter to the selected point series. This is useful
 *   **Result**: Choose to create a **New Series** (preserving the original) or **Replace** the existing one.
 
 ![Gaussian Filter](screenshots/demo_gaussian_filter.png)
+
 *Figure: Gaussian Filter applied to a noisy signal*
 
 ---
@@ -110,6 +111,7 @@ Applies a median filter to remove "salt and pepper" noise or outliers without bl
 *   **Result**: Create a new series or replace the original.
 
 ![Selective Median Filter](screenshots/demo_selective_median_filter.png)
+
 *Figure: Selective Median Filter removing spikes from a signal*
 
 ---
@@ -127,6 +129,7 @@ A flexible tool for importing data from CSV or text files, with automatic column
 *   **Date/Time Parsing**: Automatically converts DateTime columns into relative seconds (t=0 at first sample).
 
 ![Advanced CSV Importer](screenshots/demo_advanced_csv_import.png)
+
 *Figure: Advanced CSV Import Configuration Dialog*
 
 ---
@@ -141,6 +144,7 @@ Saves and loads axis and graph configuration profiles. Useful for quickly switch
 *   **Profile List**: Browse and manage all saved profiles.
 
 ![Profile Manager](screenshots/demo_profile_manager.png)
+
 *Figure: Profile Manager Dialog*
 
 ---
@@ -157,6 +161,7 @@ Transforms a point series to new X and Y limits. Useful for scaling and shifting
 *   **Result**: Choose to create a **New Series** or **Replace** the original.
 
 ![Morph Transform](screenshots/demo_morphing.png)
+
 *Figure: Morph dialog for transforming series limits*
 
 ---
@@ -170,6 +175,7 @@ Resamples a point series using various interpolation methods. Useful for changin
 *   **Result**: Create a new series or replace the original.
 
 ![Resample](screenshots/demo_resample.png)
+
 *Figure: Resample Dialog showing interpolation options*
 
 ---
@@ -185,6 +191,7 @@ Calculates and displays statistical information about the selected point series,
 *   **Add Info Lines**: Optionally adds horizontal lines for Ymin, Ymax, Mean, Median, and ±1 std.
 
 ![Signal Info](screenshots/demo_signal_info.png)
+
 *Figure: Signal Info dialog with statistical analysis*
 
 ---
@@ -199,6 +206,7 @@ Draws a rectangle that matches the current visible axis area. Useful for marking
 *   Creates a dashed rectangle as a point series.
 
 ![Draw Visible Rect](screenshots/demo_visible_rect.png)
+
 *Figure: Visible rectangle drawn on the graph area*
 
 ---
@@ -217,6 +225,7 @@ Generates a composite signal formed by the sum of up to six sinusoidal waves, wi
 *   **Appearance**: Select **Color** and **Thickness** for the generated plot.
 
 ![Composite Signal Generator](screenshots/demo_composite_signal_generator.png)
+
 *Figure: Composite Signal Generator Dialog*
 
 ---
@@ -251,9 +260,11 @@ OPENAI_MODEL=gpt-4o-mini
 *   "Damped oscillation with exponential decay"
 
 ![AI Function Generator](screenshots/demo_ai1.png)
+
 *Figure: AI Function Generator dialog with natural language input*
 
 ![AI Generated Function](screenshots/demo_ai2.png)
+
 *Figure: Generated function displayed in Graph*
 
 ---
@@ -267,6 +278,7 @@ Injects random "spikes" (outliers) into an existing signal. Excellent for testin
 *   **Result**: Create a new series or replace the original.
 
 ![Spike Generator](screenshots/demo_spike_generator.png)
+
 *Figure: Signal with generated spikes*
 
 ---
@@ -280,14 +292,41 @@ Adds random noise to the selected point series. Supports both Normal (Gaussian) 
 *   **Result**: Create a new series or replace the original.
 
 ![Noise Generator](screenshots/demo_noise_generator.png)
+
 *Figure: Noise Generator Dialog*
 
 ![Uniform Noise Generator](screenshots/demo_uniform_noise_generator.png)
+
 *Figure: Signal with uniform noise applied*
 
 ---
 
-## 🛠️ Utilities
+## � Function Sampler
+Samples a selected mathematical function (TStdFunc) at discrete points to generate a point series. This is useful for converting continuous functions into discrete data for further processing or analysis.
+
+**Parameters:**
+*   **Selected Function**: Displays the equation and interval of the currently selected function.
+*   **Sampling Period (Ts)**: The time interval between consecutive samples. Default is 1% of the function's interval range.
+*   **Start Time (t₀)**: The starting point for sampling (defaults to function's `From` value).
+*   **End Time (tf)**: The ending point for sampling (defaults to function's `To` value).
+*   **Series Color**: Choose the color for the generated point series.
+
+**Formula:**
+The plugin generates points using: `yᵢ = f(xᵢ)` where `xᵢ = t₀ + i·Ts`
+
+**Usage:**
+1.  Select a function (TStdFunc) in the function panel.
+2.  Open the dialog from `Plugins → Graphîa → AWF Generators → Function Sampler...`
+3.  Adjust the sampling period and time range as needed.
+4.  Click **Sample** to generate the point series.
+
+![Function Sampler](screenshots/demo_function_sampler.png)
+
+*Figure: Function Sampler dialog and sampled points from a damped oscillation*
+
+---
+
+## �🛠️ Utilities
 
 *   **ShowConsole (F11)**: Toggles the Python interpreter window, allowing for advanced debugging and direct script execution within Graph.
 *   **Plugin Manager**: Install, update, and manage plugins from the Graph interface.

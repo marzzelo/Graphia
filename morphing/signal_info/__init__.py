@@ -1,6 +1,6 @@
 
 import Graph
-import vcl
+import vcl # type: ignore
 import os
 import sys
 
@@ -55,7 +55,7 @@ def clear_info_functions():
     to_remove = []
     for i in range(len(Graph.FunctionList)):
         elem = Graph.FunctionList[i]
-        if hasattr(elem, 'LegendText') and elem.LegendText and "(info)" in elem.LegendText:
+        if hasattr(elem, 'LegendText') and elem.LegendText and "(info)" in elem.LegendText: # type: ignore
             to_remove.append(i)
     
     # Remove from highest to lowest index
@@ -253,4 +253,4 @@ Action = Graph.CreateAction(
 )
 
 # Add to Plugins -> Morphing menu
-Graph.AddActionToMainMenu(Action, TopMenu="Plugins", SubMenus=["Graphîa", "Morphing"])
+Graph.AddActionToMainMenu(Action, TopMenu="Plugins", SubMenus=["Graphîa", "Morphing"]) # type: ignore

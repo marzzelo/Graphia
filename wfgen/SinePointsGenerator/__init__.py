@@ -50,7 +50,7 @@ def GenerateSinePoints(Action):
 
         lbl_help = vcl.TLabel(help_panel)
         lbl_help.Parent = help_panel
-        lbl_help.Caption = "Generates: Σ [Aₙ·sin(2πfₙt+φₙ) + Cₙ] + noise  (n=1..6)"
+        lbl_help.Caption = "Generates: Σ Aₙ·sin(2πfₙt+φₙ) + C + noise  (n=1..6)"
         lbl_help.Left = 10
         lbl_help.Top = 28
         lbl_help.Font.Color = 0x804000
@@ -78,18 +78,15 @@ def GenerateSinePoints(Action):
         lbl_hdr_a = vcl.TLabel(Form, Parent=Form, Caption="Ampl [V]", Left=90, Top=105)
         lbl_hdr_a.Font.Color = 0x666666
         labels.append(lbl_hdr_a)
-        lbl_hdr_f = vcl.TLabel(Form, Parent=Form, Caption="Freq [Hz]", Left=170, Top=105)
+        lbl_hdr_f = vcl.TLabel(Form, Parent=Form, Caption="Freq [Hz]", Left=200, Top=105)
         lbl_hdr_f.Font.Color = 0x666666
         labels.append(lbl_hdr_f)
-        lbl_hdr_p = vcl.TLabel(Form, Parent=Form, Caption="Phase [rad]", Left=250, Top=105)
+        lbl_hdr_p = vcl.TLabel(Form, Parent=Form, Caption="Phase [rad]", Left=310, Top=105)
         lbl_hdr_p.Font.Color = 0x666666
         labels.append(lbl_hdr_p)
-        lbl_hdr_o = vcl.TLabel(Form, Parent=Form, Caption="Offset [V]", Left=340, Top=105)
-        lbl_hdr_o.Font.Color = 0x666666
-        labels.append(lbl_hdr_o)
 
         # Function to create signal rows
-        def create_signal_row(parent, y, title, prefix, def_a, def_f, def_p, def_o):
+        def create_signal_row(parent, y, title, prefix, def_a, def_f, def_p):
             lbl = vcl.TLabel(parent)
             lbl.Parent = parent
             lbl.Caption = title
@@ -97,25 +94,22 @@ def GenerateSinePoints(Action):
             lbl.Top = y + 3
             labels.append(lbl)
 
-            ea = vcl.TEdit(parent, Parent=parent, Left=90, Top=y, Width=60, Text=str(def_a))
+            ea = vcl.TEdit(parent, Parent=parent, Left=90, Top=y, Width=90, Text=str(def_a))
             inputs[f"{prefix}_a"] = ea
 
-            ef = vcl.TEdit(parent, Parent=parent, Left=170, Top=y, Width=60, Text=str(def_f))
+            ef = vcl.TEdit(parent, Parent=parent, Left=200, Top=y, Width=90, Text=str(def_f))
             inputs[f"{prefix}_f"] = ef
 
-            ep = vcl.TEdit(parent, Parent=parent, Left=250, Top=y, Width=60, Text=str(def_p))
+            ep = vcl.TEdit(parent, Parent=parent, Left=310, Top=y, Width=90, Text=str(def_p))
             inputs[f"{prefix}_p"] = ep
 
-            eo = vcl.TEdit(parent, Parent=parent, Left=340, Top=y, Width=60, Text=str(def_o))
-            inputs[f"{prefix}_o"] = eo
-
         # Create 6 signal rows
-        create_signal_row(Form, 125, "Signal 1:", "s1", 4/np.pi, 1.0, 0.0, 0.0)
-        create_signal_row(Form, 150, "Signal 2:", "s2", 4/(3*np.pi), 3.0, 0.0, 0.0)
-        create_signal_row(Form, 175, "Signal 3:", "s3", 0, 5.0, 0.0, 0.0)
-        create_signal_row(Form, 200, "Signal 4:", "s4", 0, 7.0, 0.0, 0.0)
-        create_signal_row(Form, 225, "Signal 5:", "s5", 0, 9.0, 0.0, 0.0)
-        create_signal_row(Form, 250, "Signal 6:", "s6", 0, 11.0, 0.0, 0.0)
+        create_signal_row(Form, 125, "Signal 1:", "s1", 4/np.pi, 1.0, 0.0)
+        create_signal_row(Form, 150, "Signal 2:", "s2", 4/(3*np.pi), 3.0, 0.0)
+        create_signal_row(Form, 175, "Signal 3:", "s3", 0, 5.0, 0.0)
+        create_signal_row(Form, 200, "Signal 4:", "s4", 0, 7.0, 0.0)
+        create_signal_row(Form, 225, "Signal 5:", "s5", 0, 9.0, 0.0)
+        create_signal_row(Form, 250, "Signal 6:", "s6", 0, 11.0, 0.0)
 
         # Separator
         sep2 = vcl.TBevel(Form)
@@ -139,6 +133,11 @@ def GenerateSinePoints(Action):
         l_fs = vcl.TLabel(Form, Parent=Form, Caption="Sample Rate [Hz]:", Left=20, Top=323)
         labels.append(l_fs)
         inputs["fs"] = vcl.TEdit(Form, Parent=Form, Left=130, Top=320, Width=80, Text="1000")
+
+        # General offset
+        l_offset = vcl.TLabel(Form, Parent=Form, Caption="Offset [V]:", Left=250, Top=323)
+        labels.append(l_offset)
+        inputs["offset"] = vcl.TEdit(Form, Parent=Form, Left=330, Top=320, Width=80, Text="0")
 
         # Time range
         l_ts = vcl.TLabel(Form, Parent=Form, Caption="Start Time [s]:", Left=20, Top=353)
@@ -222,19 +221,19 @@ def GenerateSinePoints(Action):
         # Show dialog
         if Form.ShowModal() == 1:
             try:
-                # Read signal values (6 signals with amplitude, frequency, phase, offset)
+                # Read signal values (6 signals with amplitude, frequency, phase)
                 signals = []
                 for i in range(1, 7):
                     prefix = f"s{i}"
                     sig = {
                         'a': float(inputs[f"{prefix}_a"].Text),
                         'f': float(inputs[f"{prefix}_f"].Text),
-                        'p': float(inputs[f"{prefix}_p"].Text),
-                        'o': float(inputs[f"{prefix}_o"].Text)
+                        'p': float(inputs[f"{prefix}_p"].Text)
                     }
                     signals.append(sig)
 
                 fs = float(inputs["fs"].Text)
+                offset = float(inputs["offset"].Text)
                 ts = float(inputs["ts"].Text)
                 te = float(inputs["te"].Text)
                 
@@ -268,29 +267,24 @@ def GenerateSinePoints(Action):
                 for i in range(count):
                     t = ts + i / fs
                     y = sum(
-                        sig['a'] * math.sin(2 * math.pi * sig['f'] * t + sig['p']) + sig['o']
+                        sig['a'] * math.sin(2 * math.pi * sig['f'] * t + sig['p'])
                         for sig in signals
-                    ) + noise[i]
+                    ) + offset + noise[i]
                     points.append(Point(t, y))
 
                 # Build legend
                 legend_parts = []
                 for idx, sig in enumerate(signals, 1):
-                    a, f, p, o = sig['a'], sig['f'], sig['p'], sig['o']
-                    if a != 0 or o != 0:
-                        term = ""
-                        if a != 0:
-                            term = f"{a}·sin(2π·{f}·t"
-                            if p != 0:
-                                term += f"+{p}"
-                            term += ")"
-                        if o != 0:
-                            if term:
-                                term += f"+{o}" if o > 0 else f"{o}"
-                            else:
-                                term = str(o)
-                        if term:
-                            legend_parts.append(term)
+                    a, f, p = sig['a'], sig['f'], sig['p']
+                    if a != 0:
+                        term = f"{a}·sin(2π·{f}·t"
+                        if p != 0:
+                            term += f"+{p}"
+                        term += ")"
+                        legend_parts.append(term)
+                
+                if offset != 0:
+                    legend_parts.append(str(offset))
                 
                 if noise_amp > 0:
                     legend_parts.append(f"noise({noise_amp})")
