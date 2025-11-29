@@ -16,6 +16,38 @@
 
 A comprehensive collection of Python plugins designed for the [Graph](https://www.padowan.dk/) plotting application. This system extends the functionality of Graph by adding advanced filtering, data importing, signal morphing, visualization tools, and waveform generation capabilities.
 
+---
+
+## 📑 Table of Contents
+
+- [Installation](#-installation)
+- [Development Setup](#-development-setup)
+- [1. Filters](#1-filters)
+  - [Gaussian Filter](#-gaussian-filter)
+  - [Selective Median Filter](#-selective-median-filter)
+- [2. Importing](#2-importing)
+  - [Advanced CSV Importer](#-advanced-csv-importer)
+  - [Profile Manager](#-profile-manager)
+- [3. Morphing](#3-morphing)
+  - [Morph - Transform Series](#-morph---transform-series)
+  - [Resample](#-resample)
+  - [Signal Info](#-signal-info)
+  - [Apply Function](#-apply-function)
+  - [Linear Combination](#-linear-combination)
+- [4. Visualization](#4-visualization)
+  - [Draw Visible Rect](#-draw-visible-rect)
+- [5. Waveform Generation](#5-waveform-generation-wfgen)
+  - [Composite Signal Generator](#️-composite-signal-generator)
+  - [AI Function Generator](#-ai-function-generator)
+  - [Spike Generator](#-spike-generator)
+  - [Noise Generator](#-noise-generator)
+  - [Function Sampler](#-function-sampler)
+- [Utilities](#️-utilities)
+- [Author](#-author)
+- [License](#-license)
+
+---
+
 ## 📥 Installation
 
 ### Quick Install (Recommended)
@@ -193,6 +225,56 @@ Calculates and displays statistical information about the selected point series,
 ![Signal Info](screenshots/demo_signal_info.png)
 
 *Figure: Signal Info dialog with statistical analysis*
+
+---
+
+## 🔢 Apply Function
+Applies a custom mathematical function `f(y)` to each Y value of the selected point series, generating a new transformed series.
+
+**Parameters:**
+*   **Selected Series**: Displays the name and point count of the currently selected series.
+*   **Function f(y)**: Enter a mathematical expression using `y` as the variable (e.g., `y^2`, `sqrt(y)`, `ln(y)`).
+*   **Output Mode**: Choose to create a **New Series** or **Replace** the original.
+*   **Series Color**: Select the color for the new series (when creating a new one).
+
+**Examples:**
+*   `y^2` - Square each Y value
+*   `sqrt(y)` - Square root transformation
+*   `abs(y)` - Absolute value
+*   `ln(y)` - Natural logarithm
+*   `10*y + 5` - Linear transformation
+*   `sin(y)` - Sine of Y values
+*   `e^(-y)` - Exponential decay
+
+![Apply Function](screenshots/demo_apply_function.png)
+
+*Figure: Apply Function dialog for transforming Y values*
+
+---
+
+## ➕ Linear Combination
+Combines multiple point series linearly using the formula `y = Σ kᵢ · yᵢ(x)`, where each series is multiplied by a user-defined factor.
+
+**Parameters:**
+*   **Base Series**: The selected series defines the X domain (all other series are interpolated to these X values).
+*   **Series List**: Shows all visible point series with:
+    *   **Checkbox**: Select which series to include in the combination.
+    *   **Factor (kᵢ)**: The multiplication factor for each series (default: 1.00).
+    *   **Legend**: Series name (limited to 50 characters).
+*   **Interpolation**: Uses CubicSpline with extrapolation for non-base series.
+*   **Result Color**: Choose the color for the resulting combined series.
+
+**Example:**
+```
+[✓]  [ 3.50 ]   sin(x)
+[ ]  [ 1.00 ]   x + 3
+[✓]  [-1.54 ]   x^2 + x
+```
+Result: `y = 3.5·sin(x) - 1.54·(x² + x)`
+
+![Linear Combination](screenshots/demo_linear_combination.png)
+
+*Figure: Linear Combination dialog for combining multiple series*
 
 ---
 

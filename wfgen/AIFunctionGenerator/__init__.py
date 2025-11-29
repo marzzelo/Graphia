@@ -279,6 +279,18 @@ def generate_function_dialog(Action):
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
         
+        # Icon in top-right corner
+        icon_path = os.path.join(os.path.dirname(__file__), "AIFunctionGenerator_sm.png")
+        if os.path.exists(icon_path):
+            img_icon = vcl.TImage(Form)
+            img_icon.Parent = Form
+            img_icon.Left = Form.ClientWidth - 74
+            img_icon.Top = 10
+            img_icon.Width = 64
+            img_icon.Height = 64
+            img_icon.Stretch = True
+            img_icon.Picture.LoadFromFile(icon_path)
+        
         # Title
         lbl_title = vcl.TLabel(Form)
         lbl_title.Parent = Form
