@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 .env
 .packages/
+Graph-Spanish.txt
+PluginDoc.txt
 
 # C extensions
 *.so
