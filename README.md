@@ -313,40 +313,62 @@ Generates a composite signal formed by the sum of up to six sinusoidal waves, wi
 ---
 
 ## 🤖 AI Function Generator
-Generates mathematical functions using **OpenAI's GPT models** with natural language prompts. Simply describe the function you want in plain English (or Spanish), and the AI will generate the appropriate equation, interval, and legend for Graph.
+
+Generates mathematical functions using **OpenAI's GPT models** with natural language prompts. Describe the function you want in plain English or Spanish, and the AI will generate the appropriate equation, interval, and legend for Graph. Now supports both **standard** (y = f(x)) and **parametric** (x(t), y(t)) functions, chosen automatically by the model.
 
 **Features:**
-*   **Natural Language Input**: Describe your function in everyday language (e.g., "A parabola that passes through the origin with vertex at (0, -4)").
+*   **Natural Language Input**: Describe your function in everyday language (e.g., "A parabola that passes through the origin", "A circle of radius 5").
+*   **Automatic Function Type**: The AI decides whether to generate a standard (y = f(x)) or parametric (x(t), y(t)) function based on your description.
+*   **Model Selection**: Choose from multiple OpenAI models (GPT-4, GPT-5, o3, etc.) directly in the plugin dialog.
+*   **Reasoning Level**: Select the reasoning effort (low, medium, high) for more accurate or creative results.
+*   **Verbosity**: Control the level of explanation detail (low, medium, high).
 *   **Structured Output**: Uses OpenAI's structured outputs with Pydantic validation to ensure correct Graph syntax.
-*   **Automatic Interval**: The AI suggests an appropriate X interval based on the function type.
+*   **Automatic Interval**: The AI suggests an appropriate interval for x or t based on the function type.
 *   **Session API Key**: If no API key is configured in `.env`, the plugin prompts for manual entry. The key is stored only for the current session.
-*   **Model Selection**: Configurable model via `.env` file (default: `gpt-4o-mini`).
 
 **Configuration (`.env` file in Plugins folder):**
 ```env
 OPENAI_API_KEY=sk-your-api-key-here
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5.1
 ```
 
 **Usage:**
 1.  Open the dialog from `Plugins → Graphîa → AWF Generators → AI Function Generator...`
 2.  Enter a description of the function you want to create.
-3.  Click **Generate** to send the request to OpenAI.
-4.  Review the generated equation, interval, and explanation.
-5.  Click **Accept** to add the function to Graph.
+3.  Select the desired model, reasoning level, and verbosity.
+4.  Click **Generate** to send the request to OpenAI.
+5.  Review the generated equation(s), interval, and explanation.
+6.  Click **Accept** to add the function to Graph.
+
+**Function Types:**
+*   **Standard**: y = f(x) (e.g., lines, parabolas, sine waves)
+*   **Parametric**: x(t), y(t) (e.g., circles, ellipses, spirals, Lissajous curves)
+  The plugin automatically chooses the type based on your prompt.
 
 **Example Prompts:**
-*   "A sine wave with amplitude 2 and period π"
-*   "Gaussian bell curve centered at x=0"
-*   "Line passing through points (1, 2) and (3, 6)"
-*   "Damped oscillation with exponential decay"
+*   "A parabola that passes through the origin"
+*   "Sine function between 0 and 2π"
+*   "A circle of radius 5"
+*   "Draw an ellipse with horizontal axis 6 and vertical axis 3"
+*   "A spiral"
+*   "Lissajous curve"
+*   "A heart shape"
+
+**Example Outputs:**
+*   Standard: `y = x^2`, interval: -5 to 5
+*   Parametric: `x(t) = 5*cos(t)`, `y(t) = 5*sin(t)`, interval: 0 to 2π
+
+**Screenshots:**
+![AI Function Generator - Standard](screenshots/demo_ai_standard.png)
+*Figure: Standard function generated from natural language*
+
+![AI Function Generator - Parametric](screenshots/demo_ai_parametric.png)
+*Figure: Parametric function generated from natural language*
 
 ![AI Function Generator](screenshots/demo_ai1.png)
-
 *Figure: AI Function Generator dialog with natural language input*
 
 ![AI Generated Function](screenshots/demo_ai2.png)
-
 *Figure: Generated function displayed in Graph*
 
 ---
