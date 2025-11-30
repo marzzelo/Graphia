@@ -696,21 +696,21 @@ def generate_function_dialog(Action):
                 # Show result based on function type
                 if parsed.function_type == "parametric":
                     result_text = (
-                        f"Type:      Parametric\n"
-                        f"x(t) =     {parsed.x_equation}\n"
-                        f"y(t) =     {parsed.y_equation}\n"
-                        f"t ∈        [{parsed.interval_from:.4g}, {parsed.interval_to:.4g}]\n"
-                        f"Legend:    {parsed.legend}\n"
-                        f"{'─' * 50}\n"
+                        f"Type:      Parametric\r\n"
+                        f"x(t) =     {parsed.x_equation}\r\n"
+                        f"y(t) =     {parsed.y_equation}\r\n"
+                        f"t ∈        [{parsed.interval_from:.4g}, {parsed.interval_to:.4g}]\r\n"
+                        f"Legend:    {parsed.legend}\r\n"
+                        f"{'─' * 50}\r\n"
                         f"{parsed.explanation}"
                     )
                 else:
                     result_text = (
-                        f"Type:      Standard\n"
-                        f"y =        {parsed.equation}\n"
-                        f"x ∈        [{parsed.interval_from:.4g}, {parsed.interval_to:.4g}]\n"
-                        f"Legend:    {parsed.legend}\n"
-                        f"{'─' * 50}\n"
+                        f"Type:      Standard\r\n"
+                        f"y =        {parsed.equation}\r\n"
+                        f"x ∈        [{parsed.interval_from:.4g}, {parsed.interval_to:.4g}]\r\n"
+                        f"Legend:    {parsed.legend}\r\n"
+                        f"{'─' * 50}\r\n"
                         f"{parsed.explanation}"
                     )
                 memo_result.Text = result_text
