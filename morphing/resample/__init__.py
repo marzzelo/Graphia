@@ -4,7 +4,7 @@ import os
 # Import common module
 from common import (
     get_selected_point_series, show_error, show_info, 
-    safe_color, Point, Graph, vcl
+    safe_color, Point, Graph, vcl, get_series_data_np
 )
 
 import numpy as np
@@ -32,20 +32,17 @@ def resample_series(Action):
         show_error(error_msg or "You must select a point series (TPointSeries).", "Resample")
         return
     
-    # Get original data
-    points = point_series.Points
-    if len(points) < 2:
+    # Get original data using common utility
+    x_orig, y_orig = get_series_data_np(point_series)
+    if len(x_orig) < 2:
         show_error("The series must have at least 2 points.", "Resample")
         return
-    
-    x_orig = np.array([p.x for p in points])
-    y_orig = np.array([p.y for p in points])
     
     # Calcular periodo de muestreo actual (promedio)
     dx = np.diff(x_orig)
     current_period = np.mean(dx)
     x_min, x_max = x_orig.min(), x_orig.max()
-    n_points = len(points)
+    n_points = len(x_orig)
     
     # Create form
     Form = vcl.TForm(None)

@@ -293,3 +293,155 @@ def get_series_stats(point_series):
         'x_vals': x_vals,
         'y_vals': y_vals
     }
+
+
+# =============================================================================
+# Functions to get multiple series from graph
+# =============================================================================
+
+def get_visible_point_series():
+    """
+    Returns a list of all visible TPointSeries in the graph.
+    
+    Returns:
+        list: List of TPointSeries objects that are visible
+    """
+    series_list = []
+    for item in Graph.FunctionList:
+        if type(item).__name__ == "TPointSeries" and item.Visible:
+            series_list.append(item)
+    return series_list
+
+
+def get_all_point_series():
+    """
+    Returns a list of ALL TPointSeries in the graph (visible or not).
+    
+    Returns:
+        list: List of all TPointSeries objects
+    """
+    series_list = []
+    for item in Graph.FunctionList:
+        if type(item).__name__ == "TPointSeries":
+            series_list.append(item)
+    return series_list
+
+
+# =============================================================================
+# Numpy-based data extraction (requires numpy)
+# =============================================================================
+
+def get_series_data_np(point_series):
+    """
+    Extracts X and Y values from a TPointSeries as numpy arrays.
+    
+    Note: Requires numpy to be imported. Call setup_venv() first if using
+    from a module that hasn't set up the virtual environment.
+    
+    Args:
+        point_series: TPointSeries to extract data from
+    
+    Returns:
+        tuple: (x_array, y_array) as numpy arrays
+    """
+    import numpy as np
+    points = point_series.Points
+    x = np.array([p.x for p in points])
+    y = np.array([p.y for p in points])
+    return x, y
+
+
+def resample_to_base(x_base, x_target, y_target, method='cubic'):
+    """
+    Resamples target series Y values to match base series X positions.
+    Uses interpolation to calculate Y values at the base X positions.
+    
+    Note: Requires numpy and scipy to be imported.
+    
+    Args:
+        x_base: X values of the base series (defines output X positions)
+        x_target: X values of the target series
+        y_target: Y values of the target series
+        method: Interpolation method ('cubic', 'linear'). Default: 'cubic'
+        
+    Returns:
+        numpy.ndarray: Resampled Y values at x_base positions.
+                       NaN values where extrapolation would be needed.
+    """
+    import numpy as np
+    from scipy.interpolate import CubicSpline
+    
+    # Sort target data by X (required for interpolation)
+    sort_idx = np.argsort(x_target)
+    x_sorted = x_target[sort_idx]
+    y_sorted = y_target[sort_idx]
+    
+    # Remove duplicates (keep first occurrence)
+    _, unique_idx = np.unique(x_sorted, return_index=True)
+    x_unique = x_sorted[unique_idx]
+    y_unique = y_sorted[unique_idx]
+    
+    if len(x_unique) < 2:
+        # Cannot interpolate with less than 2 points
+        return np.full_like(x_base, np.nan, dtype=float)
+    
+    if method == 'cubic':
+        try:
+            cs = CubicSpline(x_unique, y_unique, extrapolate=False)
+            y_resampled = cs(x_base)
+        except Exception:
+            # Fallback to linear interpolation
+            y_resampled = np.interp(x_base, x_unique, y_unique)
+    else:
+        # Linear interpolation
+        y_resampled = np.interp(x_base, x_unique, y_unique)
+        # Mark extrapolated values as NaN
+        y_resampled = np.where(
+            (x_base < x_unique.min()) | (x_base > x_unique.max()),
+            np.nan,
+            y_resampled
+        )
+    
+    return y_resampled
+
+
+# =============================================================================
+# Text utilities
+# =============================================================================
+
+def sanitize_legend(legend):
+    """
+    Sanitizes a legend string for use as a column header or filename.
+    Removes or replaces characters that might cause issues.
+    
+    Args:
+        legend: Original legend text
+        
+    Returns:
+        str: Sanitized legend text
+    """
+    if not legend:
+        return "Unnamed"
+    # Replace problematic characters
+    sanitized = legend.replace('"', "'").replace('\n', ' ').replace('\r', '')
+    return sanitized.strip() or "Unnamed"
+
+
+# =============================================================================
+# Standard color palette for series
+# =============================================================================
+
+SERIES_COLORS = [
+    0x0000FF,  # Red (BGR)
+    0x00AA00,  # Green
+    0xFF0000,  # Blue
+    0x00AAAA,  # Yellow (dark)
+    0xAA00AA,  # Magenta
+    0xAAAA00,  # Cyan
+    0x0055AA,  # Orange
+    0x880088,  # Purple
+    0x008800,  # Dark Green
+    0x000088,  # Dark Red
+    0x444444,  # Dark Gray
+    0x008888,  # Olive
+]

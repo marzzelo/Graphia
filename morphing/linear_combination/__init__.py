@@ -3,25 +3,18 @@ import os
 
 # Import common module
 from common import (
-    get_selected_point_series, show_error, show_info, 
-    safe_color, Point, Graph, vcl
+    setup_venv, get_selected_point_series, show_error, show_info, 
+    safe_color, Point, Graph, vcl, get_visible_point_series,
+    get_series_data_np, resample_to_base
 )
 
+setup_venv()
+
 import numpy as np
-from scipy.interpolate import CubicSpline
 
 PluginName = "Linear Combination"
 PluginVersion = "1.0"
 PluginDescription = "Combines point series linearly: y = Σ kᵢ·yᵢ"
-
-
-def get_all_point_series():
-    """Returns a list of all visible TPointSeries in the graph."""
-    series_list = []
-    for item in Graph.FunctionList:
-        if type(item).__name__ == "TPointSeries" and item.Visible:
-            series_list.append(item)
-    return series_list
 
 
 def linear_combination(Action):
@@ -35,18 +28,16 @@ def linear_combination(Action):
         return
     
     # Get all visible point series
-    all_series = get_all_point_series()
+    all_series = get_visible_point_series()
     if len(all_series) < 1:
         show_error("No visible point series found.", "Linear Combination")
         return
     
-    # Get base series X values
-    base_points = base_series.Points
-    if len(base_points) < 2:
+    # Get base series X values using common utility
+    x_base, y_base_orig = get_series_data_np(base_series)
+    if len(x_base) < 2:
         show_error("Base series must have at least 2 points.", "Linear Combination")
         return
-    
-    x_base = np.array([p.x for p in base_points])
     
     # Calculate form height based on number of series
     row_height = 30
@@ -275,18 +266,15 @@ def linear_combination(Action):
                 y_combined = np.zeros(len(x_base))
                 
                 for series, factor in zip(selected_series, factors):
-                    points = series.Points
-                    x_series = np.array([p.x for p in points])
-                    y_series = np.array([p.y for p in points])
+                    x_series, y_series = get_series_data_np(series)
                     
                     if series == base_series:
                         # Use original Y values directly
                         y_interp = y_series
                     else:
-                        # Interpolate Y values at base X positions
+                        # Interpolate Y values at base X positions using common utility
                         try:
-                            cs = CubicSpline(x_series, y_series, extrapolate=True)
-                            y_interp = cs(x_base)
+                            y_interp = resample_to_base(x_base, x_series, y_series, method='cubic')
                         except Exception as e:
                             show_error(f"Interpolation error for '{series.LegendText[:30]}': {str(e)}", 
                                        "Linear Combination")

@@ -28,15 +28,17 @@ A comprehensive collection of Python plugins designed for the [Graph](https://ww
 - [2. Importing](#2-importing)
   - [Advanced CSV Importer](#-advanced-csv-importer)
   - [Profile Manager](#-profile-manager)
-- [3. Morphing](#3-morphing)
+- [3. Exporting](#3-exporting)
+  - [CSV Exporter](#-csv-exporter)
+- [4. Morphing](#4-morphing)
   - [Morph - Transform Series](#-morph---transform-series)
   - [Resample](#-resample)
   - [Signal Info](#-signal-info)
   - [Apply Function](#-apply-function)
   - [Linear Combination](#-linear-combination)
-- [4. Visualization](#4-visualization)
+- [5. Visualization](#5-visualization)
   - [Draw Visible Rect](#-draw-visible-rect)
-- [5. Waveform Generation](#5-waveform-generation-wfgen)
+- [6. Waveform Generation](#6-waveform-generation-wfgen)
   - [Composite Signal Generator](#️-composite-signal-generator)
   - [AI Function Generator](#-ai-function-generator)
   - [Spike Generator](#-spike-generator)
@@ -181,7 +183,45 @@ Saves and loads axis and graph configuration profiles. Useful for quickly switch
 
 ---
 
-# 3. Morphing
+# 3. Exporting
+
+## 📤 CSV Exporter
+Exports visible point series to CSV format with flexible configuration options. The selected series defines the sampling period and limits, while other series are automatically resampled using cubic interpolation to match.
+
+**Features:**
+*   **Base Series**: The currently selected series defines the X domain (time/sampling) and limits for all exported data.
+*   **Automatic Resampling**: Other visible series are resampled using CubicSpline interpolation to match the base series' X values.
+*   **Column Configuration**:
+    *   **Include/Exclude**: Choose which columns to include in the export.
+    *   **Column Names**: Customize header names for each column.
+    *   **Decimal Places**: Configure precision for each column individually.
+    *   **Column Order**: Reorder columns as needed.
+*   **Separator Options**: Choose from comma, semicolon, tab, or pipe separators.
+*   **Sample Index**: Optionally include a Sample# column as the first column.
+
+**Usage:**
+1.  Select the point series you want to use as the **base** (defines sampling and limits).
+2.  Make sure all series you want to export are **visible**.
+3.  Open the dialog from `Plugins → Graphîa → Exporting → CSV Exporter...`
+4.  Configure columns (names, decimals, order, include/exclude).
+5.  Select the output file path and separator.
+6.  Click **Export** to generate the CSV file.
+
+**Output Format:**
+```csv
+time,Base Series,Other Series 1,Other Series 2
+0.000000,1.234567,2.345678,3.456789
+0.001000,1.234890,2.345901,3.457012
+...
+```
+
+![CSV Exporter](screenshots/demo_export_csv.png)
+
+*Figure: CSV Exporter dialog with column configuration*
+
+---
+
+# 4. Morphing
 
 ## 🔄 Morph - Transform Series
 Transforms a point series to new X and Y limits. Useful for scaling and shifting data to match different coordinate systems.
@@ -278,7 +318,7 @@ Result: `y = 3.5·sin(x) - 1.54·(x² + x)`
 
 ---
 
-# 4. Visualization
+# 5. Visualization
 
 ## 🔲 Draw Visible Rect
 Draws a rectangle that matches the current visible axis area. Useful for marking or highlighting the current view boundaries.
@@ -293,7 +333,7 @@ Draws a rectangle that matches the current visible axis area. Useful for marking
 
 ---
 
-# 5. Waveform Generation (wfgen)
+# 6. Waveform Generation (wfgen)
 
 ## 〰️ Composite Signal Generator
 Generates a composite signal formed by the sum of up to six sinusoidal waves, with optional noise.

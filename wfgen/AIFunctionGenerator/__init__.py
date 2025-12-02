@@ -629,7 +629,7 @@ def generate_function_dialog(Action):
                     if selected_model.startswith("gpt-5"):
                         request_params["reasoning"] = {"effort": reasoning_effort}
                     
-                    response = client.responses.create(**request_params)
+                    response = client.responses.create(**request_params) # type: ignore
                     
                     # Extract output text
                     output_text = None
@@ -691,7 +691,7 @@ def generate_function_dialog(Action):
                 # Parse JSON response
                 json_response = json.loads(output_text)
                 parsed = FunctionDefinition(**json_response)
-                result_data[0] = parsed
+                result_data[0] = parsed # type: ignore
                 
                 # Show result based on function type
                 if parsed.function_type == "parametric":
@@ -804,4 +804,4 @@ Action = Graph.CreateAction(
 )
 
 # Add to Plugins menu -> AWF Generators
-Graph.AddActionToMainMenu(Action, TopMenu="Plugins", SubMenus=["Graphîa", "AWF Generators"])
+Graph.AddActionToMainMenu(Action, TopMenu="Plugins", SubMenus=["Graphîa", "AWF Generators"]) # type: ignore

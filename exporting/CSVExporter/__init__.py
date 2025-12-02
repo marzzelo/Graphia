@@ -11,14 +11,15 @@ import vcl
 
 # Import common utilities
 from common import (
-    setup_venv, show_error, show_info, safe_color, Point
+    setup_venv, show_error, show_info, safe_color, Point,
+    get_selected_point_series, get_visible_point_series,
+    get_series_data_np, resample_to_base, sanitize_legend
 )
 
 # Setup venv for scipy
 setup_venv()
 
 import numpy as np
-from scipy.interpolate import CubicSpline
 
 PluginName = "CSV Exporter"
 PluginVersion = "1.0"
@@ -29,79 +30,15 @@ DEFAULT_SEPARATOR = ','
 DEFAULT_DECIMALS = 6
 
 
-def get_visible_point_series():
+def get_visible_series_with_legends():
     """
-    Returns a list of all visible TPointSeries in the graph.
+    Returns a list of all visible TPointSeries with their legends.
     
     Returns:
         list: List of tuples (series, legend_text) for visible point series
     """
-    series_list = []
-    
-    for item in Graph.FunctionList:
-        if isinstance(item, Graph.TPointSeries):
-            # Check if series is visible
-            if hasattr(item, 'Visible') and not item.Visible:
-                continue
-            
-            legend = item.LegendText or f"Series_{len(series_list)+1}"
-            series_list.append((item, legend))
-    
-    return series_list
-
-
-def get_series_xy(series):
-    """
-    Extracts X and Y arrays from a TPointSeries.
-    
-    Args:
-        series: TPointSeries object
-        
-    Returns:
-        tuple: (x_array, y_array) as numpy arrays
-    """
-    points = series.Points
-    x = np.array([p.x for p in points])
-    y = np.array([p.y for p in points])
-    return x, y
-
-
-def resample_series(x_base, y_base, x_target, y_target):
-    """
-    Resamples target series to match base series X values using cubic interpolation.
-    
-    Args:
-        x_base: X values of the base series (defines output X)
-        y_base: Y values of the base series (not used, but kept for clarity)
-        x_target: X values of the target series
-        y_target: Y values of the target series
-        
-    Returns:
-        numpy.ndarray: Resampled Y values at x_base positions
-    """
-    # Sort target data by X (required for CubicSpline)
-    sort_idx = np.argsort(x_target)
-    x_sorted = x_target[sort_idx]
-    y_sorted = y_target[sort_idx]
-    
-    # Remove duplicates (keep first occurrence)
-    _, unique_idx = np.unique(x_sorted, return_index=True)
-    x_unique = x_sorted[unique_idx]
-    y_unique = y_sorted[unique_idx]
-    
-    if len(x_unique) < 2:
-        # Cannot interpolate with less than 2 points
-        return np.full_like(x_base, np.nan, dtype=float)
-    
-    # Create cubic spline interpolator
-    try:
-        cs = CubicSpline(x_unique, y_unique, extrapolate=False)
-        y_resampled = cs(x_base)
-    except Exception:
-        # Fallback to linear interpolation
-        y_resampled = np.interp(x_base, x_unique, y_unique)
-    
-    return y_resampled
+    series_list = get_visible_point_series()
+    return [(s, s.LegendText or f"Series_{i+1}") for i, s in enumerate(series_list)]
 
 
 def export_to_csv(file_path, separator, columns_config, include_sample_index):
@@ -130,7 +67,7 @@ def export_to_csv(file_path, separator, columns_config, include_sample_index):
             return False, "No base series selected."
         
         base_series = base_config['series']
-        x_base, y_base = get_series_xy(base_series)
+        x_base, y_base = get_series_data_np(base_series)
         
         # Sort base by X
         sort_idx = np.argsort(x_base)
@@ -166,8 +103,8 @@ def export_to_csv(file_path, separator, columns_config, include_sample_index):
             else:
                 # Resample this series to match base X
                 series = col['series']
-                x_target, y_target = get_series_xy(series)
-                y_resampled = resample_series(x_base, y_base, x_target, y_target)
+                x_target, y_target = get_series_data_np(series)
+                y_resampled = resample_to_base(x_base, x_target, y_target)
                 data_columns.append((y_resampled, decimals))
         
         # Write CSV file
@@ -197,16 +134,6 @@ def export_to_csv(file_path, separator, columns_config, include_sample_index):
         
     except Exception as e:
         return False, f"Export error: {str(e)}"
-
-
-def sanitize_legend(legend):
-    """
-    Sanitizes a legend string for use as a column header.
-    Removes or replaces characters that might cause issues in CSV.
-    """
-    # Replace problematic characters
-    sanitized = legend.replace('"', "'").replace('\n', ' ').replace('\r', '')
-    return sanitized.strip() or "Unnamed"
 
 
 class SeriesConfigRow:
@@ -294,32 +221,27 @@ def csv_export_dialog(Action):
     """
     Shows the CSV export configuration dialog.
     """
-    # Get all visible point series
-    visible_series = get_visible_point_series()
+    # Get the selected point series (will be the base)
+    base_series, error_msg = get_selected_point_series()
     
-    if len(visible_series) < 1:
+    if base_series is None:
         show_error(
-            "No visible point series found.\n"
-            "Please add at least one point series to the graph.",
+            f"{error_msg}\n\n"
+            "Please select a point series (TPointSeries) to use as the base.\n"
+            "The base series defines the sampling period and limits.\n"
+            "Other series will be resampled to match.",
             "CSV Exporter"
         )
         return
     
-    # Check if there's a selected series (will be the base)
-    selected = Graph.Selected
-    base_series = None
-    base_legend = None
+    base_legend = base_series.LegendText or "Base Series"
     
-    if selected and isinstance(selected, Graph.TPointSeries):
-        for series, legend in visible_series:
-            if series is selected:
-                base_series = series
-                base_legend = legend
-                break
+    # Get all visible point series (excluding the base series)
+    all_visible = get_visible_series_with_legends()
     
-    # If no selection, use first series as base
-    if base_series is None:
-        base_series, base_legend = visible_series[0]
+    # Filter out the base series from the list (will be added separately)
+    # Use == for comparison (same as linear_combination plugin)
+    visible_series = [(s, leg) for s, leg in all_visible if s != base_series]
     
     # Create dialog
     Form = vcl.TForm(None)
@@ -340,7 +262,7 @@ def csv_export_dialog(Action):
         lbl_title.Font.Size = 10
         
         # Base series info
-        x_base, y_base = get_series_xy(base_series)
+        x_base, y_base = get_series_data_np(base_series)
         n_points = len(x_base)
         x_min, x_max = np.min(x_base), np.max(x_base)
         dx_avg = np.mean(np.diff(np.sort(x_base))) if n_points > 1 else 0
@@ -457,17 +379,16 @@ def csv_export_dialog(Action):
         series_rows.append(base_row)
         row_top += row_height
         
-        # Other series
+        # Other visible series (base already excluded from visible_series)
         for series, legend in visible_series:
-            if series is not base_series:
-                other_row = SeriesConfigRow(
-                    scroll_box, row_top, series,
-                    legend, is_base=False, is_x_column=False
-                )
-                other_row.set_order(order_counter)
-                order_counter += 1
-                series_rows.append(other_row)
-                row_top += row_height
+            other_row = SeriesConfigRow(
+                scroll_box, row_top, series,
+                legend, is_base=False, is_x_column=False
+            )
+            other_row.set_order(order_counter)
+            order_counter += 1
+            series_rows.append(other_row)
+            row_top += row_height
         
         # Separator
         sep2 = vcl.TBevel(Form)
@@ -611,6 +532,7 @@ Action = Graph.CreateAction(
     Caption="CSV Exporter...",
     OnExecute=csv_export_dialog,
     Hint="Export visible point series to CSV format",
+    IconFile=os.path.join(os.path.dirname(__file__), "CSVExport_sm.png")
 )
 
 # Add to Plugins menu -> Graphîa -> Exporting

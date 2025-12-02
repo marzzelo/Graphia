@@ -4,3 +4,5 @@
 Exporting plugins for Graph.
 Contains modules for exporting data to various formats.
 """
+
+from . import CSVExporter
