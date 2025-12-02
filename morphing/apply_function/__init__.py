@@ -1,5 +1,6 @@
-# Plugin to apply a custom function to each Y value of a point series
-# Generates: [Ynew] = f([Y]) = [f(y0), f(y1), ..., f(yn)]
+# Plugin to apply custom functions to X and Y values of a point series
+# Generates: [Xnew] = g([X]) = [g(x0), g(x1), ..., g(xn)]
+#            [Ynew] = f([Y]) = [f(y0), f(y1), ..., f(yn)]
 import os
 import re
 
@@ -13,8 +14,8 @@ from common import (
 )
 
 PluginName = "Apply Function"
-PluginVersion = "1.0"
-PluginDescription = "Applies a custom function f(y) to each Y value of the selected point series."
+PluginVersion = "1.1"
+PluginDescription = "Applies custom functions f(y) and g(x) to transform X and Y values of the selected point series."
 
 
 def apply_function_to_series(Action):
@@ -44,7 +45,7 @@ def apply_function_to_series(Action):
     try:
         Form.Caption = "Apply Function to Series"
         Form.Width = 450
-        Form.Height = 510
+        Form.Height = 570
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
         
@@ -71,7 +72,7 @@ def apply_function_to_series(Action):
 
         lbl_help = vcl.TLabel(help_panel)
         lbl_help.Parent = help_panel
-        lbl_help.Caption = "Transforms: [Ynew] = [f(y₀), f(y₁), ..., f(yₙ)]"
+        lbl_help.Caption = "Transforms: [Xnew, Ynew] = [g(x), f(y)]"
         lbl_help.Left = 10
         lbl_help.Top = 28
         lbl_help.Font.Color = 0x804000
@@ -117,33 +118,49 @@ def apply_function_to_series(Action):
         # Function input section
         lbl_func = vcl.TLabel(Form)
         lbl_func.Parent = Form
-        lbl_func.Caption = "Function f(y)"
+        lbl_func.Caption = "Functions"
         lbl_func.Left = 10
         lbl_func.Top = 145
         lbl_func.Font.Style = {"fsBold"}
         labels.append(lbl_func)
         
-        # Function input label
-        lbl_input = vcl.TLabel(Form)
-        lbl_input.Parent = Form
-        lbl_input.Caption = "f(y) ="
-        lbl_input.Left = 20
-        lbl_input.Top = 173
-        labels.append(lbl_input)
+        # Function Y input label
+        lbl_input_y = vcl.TLabel(Form)
+        lbl_input_y.Parent = Form
+        lbl_input_y.Caption = "f(y) ="
+        lbl_input_y.Left = 20
+        lbl_input_y.Top = 173
+        labels.append(lbl_input_y)
         
-        # Function input field
-        edt_function = vcl.TEdit(Form)
-        edt_function.Parent = Form
-        edt_function.Left = 60
-        edt_function.Top = 170
-        edt_function.Width = 360
-        edt_function.Text = "y"  # Identity function by default
+        # Function Y input field
+        edt_function_y = vcl.TEdit(Form)
+        edt_function_y.Parent = Form
+        edt_function_y.Left = 60
+        edt_function_y.Top = 170
+        edt_function_y.Width = 360
+        edt_function_y.Text = "y"  # Identity function by default
+        
+        # Function X input label
+        lbl_input_x = vcl.TLabel(Form)
+        lbl_input_x.Parent = Form
+        lbl_input_x.Caption = "g(x) ="
+        lbl_input_x.Left = 20
+        lbl_input_x.Top = 203
+        labels.append(lbl_input_x)
+        
+        # Function X input field
+        edt_function_x = vcl.TEdit(Form)
+        edt_function_x.Parent = Form
+        edt_function_x.Left = 60
+        edt_function_x.Top = 200
+        edt_function_x.Width = 360
+        edt_function_x.Text = "x"  # Identity function by default
         
         # Examples panel
         pnl_examples = vcl.TPanel(Form)
         pnl_examples.Parent = Form
         pnl_examples.Left = 20
-        pnl_examples.Top = 200
+        pnl_examples.Top = 230
         pnl_examples.Width = 400
         pnl_examples.Height = 85
         pnl_examples.BevelOuter = "bvLowered"
@@ -151,8 +168,8 @@ def apply_function_to_series(Action):
         
         examples_text = (
             "Examples:  y^2  |  sqrt(y)  |  abs(y)  |  ln(y)  |  10*y + 5\n"
-            "           sin(y)  |  e^(-y)  |  1/y  |  y*cos(y)\n"
-            "Use 'y' as the variable. Graph syntax applies."
+            "           sin(x)  |  e^(-x)  |  x + 3.3  |  x*cos(x)\n"
+            "Use 'y' for f(y) and 'x' for g(x). Graph syntax applies."
         )
         lbl_examples = vcl.TLabel(pnl_examples)
         lbl_examples.Parent = pnl_examples
@@ -166,7 +183,7 @@ def apply_function_to_series(Action):
         sep3 = vcl.TBevel(Form)
         sep3.Parent = Form
         sep3.Left = 10
-        sep3.Top = 295
+        sep3.Top = 325
         sep3.Width = 420
         sep3.Height = 2
         sep3.Shape = "bsTopLine"
@@ -176,7 +193,7 @@ def apply_function_to_series(Action):
         lbl_output.Parent = Form
         lbl_output.Caption = "Output"
         lbl_output.Left = 10
-        lbl_output.Top = 305
+        lbl_output.Top = 335
         lbl_output.Font.Style = {"fsBold"}
         labels.append(lbl_output)
         
@@ -184,7 +201,7 @@ def apply_function_to_series(Action):
         pnl_output = vcl.TPanel(Form)
         pnl_output.Parent = Form
         pnl_output.Left = 10
-        pnl_output.Top = 325
+        pnl_output.Top = 355
         pnl_output.Width = 420
         pnl_output.Height = 30
         pnl_output.BevelOuter = "bvNone"
@@ -207,13 +224,13 @@ def apply_function_to_series(Action):
         lbl_color.Parent = Form
         lbl_color.Caption = "Color (new series):"
         lbl_color.Left = 20
-        lbl_color.Top = 363
+        lbl_color.Top = 393
         labels.append(lbl_color)
         
         cb_color = vcl.TColorBox(Form)
         cb_color.Parent = Form
         cb_color.Left = 140
-        cb_color.Top = 360
+        cb_color.Top = 390
         cb_color.Width = 100
         cb_color.Selected = 0x00AA00  # Green by default
 
@@ -221,7 +238,7 @@ def apply_function_to_series(Action):
         sep4 = vcl.TBevel(Form)
         sep4.Parent = Form
         sep4.Left = 10
-        sep4.Top = 400
+        sep4.Top = 430
         sep4.Width = 420
         sep4.Height = 2
         sep4.Shape = "bsTopLine"
@@ -233,7 +250,7 @@ def apply_function_to_series(Action):
         btn_apply.ModalResult = 1  # mrOk
         btn_apply.Default = True
         btn_apply.Left = 130
-        btn_apply.Top = 420
+        btn_apply.Top = 450
         btn_apply.Width = 100
         btn_apply.Height = 30
         
@@ -243,36 +260,47 @@ def apply_function_to_series(Action):
         btn_cancel.ModalResult = 2  # mrCancel
         btn_cancel.Cancel = True
         btn_cancel.Left = 240
-        btn_cancel.Top = 420
+        btn_cancel.Top = 450
         btn_cancel.Width = 100
         btn_cancel.Height = 30
         
         # Show dialog
         if Form.ShowModal() == 1:
             try:
-                func_text = edt_function.Text.strip()
+                func_y_text = edt_function_y.Text.strip()
+                func_x_text = edt_function_x.Text.strip()
                 
-                if not func_text:
-                    raise ValueError("Please enter a function.")
+                if not func_y_text:
+                    func_y_text = "y"  # Default to identity
+                if not func_x_text:
+                    func_x_text = "x"  # Default to identity
                 
-                # Apply function to each Y value
+                # Apply functions to each X and Y value
+                new_x_vals = []
                 new_y_vals = []
                 errors = []
                 
-                for i, y in enumerate(y_vals):
+                for i, (x, y) in enumerate(zip(x_vals, y_vals)):
                     try:
-                        # Replace 'y' with the actual value
-                        # Use word boundary to avoid replacing 'y' in function names
-                        expr = re.sub(r'\by\b', f'({y})', func_text)
-                        new_y = float(Graph.Eval(expr))
+                        # Replace 'y' with the actual value for f(y)
+                        expr_y = re.sub(r'\by\b', f'({y})', func_y_text)
+                        new_y = float(Graph.Eval(expr_y))
+                        
+                        # Replace 'x' with the actual value for g(x)
+                        expr_x = re.sub(r'\bx\b', f'({x})', func_x_text)
+                        new_x = float(Graph.Eval(expr_x))
+                        
+                        new_x_vals.append(new_x)
                         new_y_vals.append(new_y)
                     except Exception as e:
-                        errors.append(f"y={y:.4g}: {str(e)}")
+                        errors.append(f"x={x:.4g}, y={y:.4g}: {str(e)}")
+                        new_x_vals.append(float('nan'))
                         new_y_vals.append(float('nan'))
                 
                 # Check for errors
                 import math
-                valid_count = sum(1 for y in new_y_vals if not math.isnan(y))
+                valid_count = sum(1 for x, y in zip(new_x_vals, new_y_vals) 
+                                  if not math.isnan(x) and not math.isnan(y))
                 
                 if valid_count == 0:
                     error_preview = "\n".join(errors[:3])
@@ -282,10 +310,18 @@ def apply_function_to_series(Action):
                 
                 # Create new points (filter out NaN values)
                 new_points = [
-                    Point(x, new_y) 
-                    for x, new_y in zip(x_vals, new_y_vals) 
-                    if not math.isnan(new_y)
+                    Point(new_x, new_y) 
+                    for new_x, new_y in zip(new_x_vals, new_y_vals) 
+                    if not math.isnan(new_x) and not math.isnan(new_y)
                 ]
+                
+                # Build legend suffix
+                legend_parts = []
+                if func_y_text != "y":
+                    legend_parts.append(f"f(y)={func_y_text}")
+                if func_x_text != "x":
+                    legend_parts.append(f"g(x)={func_x_text}")
+                legend_suffix = f" [{', '.join(legend_parts)}]" if legend_parts else ""
                 
                 if rb_new.Checked:
                     # Create new series
@@ -295,7 +331,7 @@ def apply_function_to_series(Action):
                     
                     # Copy display properties
                     original_legend = series.LegendText if series.LegendText else "Series"
-                    new_series.LegendText = f"{original_legend} [f(y)={func_text}]"
+                    new_series.LegendText = f"{original_legend}{legend_suffix}"
                     new_series.Size = series.Size
                     new_series.Style = series.Style
                     new_series.LineSize = series.LineSize
@@ -312,8 +348,8 @@ def apply_function_to_series(Action):
                     # Replace points in original series
                     series.Points = new_points
                     # Update legend
-                    if series.LegendText:
-                        series.LegendText = f"{series.LegendText} [f(y)={func_text}]"
+                    if series.LegendText and legend_suffix:
+                        series.LegendText = f"{series.LegendText}{legend_suffix}"
                 
                 Graph.Update()
                 
@@ -330,7 +366,7 @@ def apply_function_to_series(Action):
 Action = Graph.CreateAction(
     Caption="Apply Function...", 
     OnExecute=apply_function_to_series, 
-    Hint="Apply a custom function f(y) to each Y value of the selected series",
+    Hint="Apply custom functions f(y) and g(x) to transform X and Y values of the selected series",
     IconFile=os.path.join(os.path.dirname(__file__), "ApplyFunction_sm.png")
 )
 
