@@ -41,6 +41,12 @@ def morph_series(Action):
     current_xmax = float(np.max(x_arr))
     current_ymin = float(np.min(y_arr))
     current_ymax = float(np.max(y_arr))
+    
+    # Get visible area limits (defaults for new limits)
+    visible_xmin = Graph.Axes.xAxis.Min
+    visible_xmax = Graph.Axes.xAxis.Max
+    visible_ymin = Graph.Axes.yAxis.Min
+    visible_ymax = Graph.Axes.yAxis.Max
 
     # Create form
     Form = vcl.TForm(None)
@@ -88,7 +94,7 @@ def morph_series(Action):
         edt_xmin.Left = 100
         edt_xmin.Top = y_top
         edt_xmin.Width = 120
-        edt_xmin.Text = f"{current_xmin:.6g}"
+        edt_xmin.Text = f"{visible_xmin:.6g}"
         
         lbl_xmin_cur = vcl.TLabel(Form)
         lbl_xmin_cur.Parent = Form
@@ -112,7 +118,7 @@ def morph_series(Action):
         edt_xmax.Left = 100
         edt_xmax.Top = y_top
         edt_xmax.Width = 120
-        edt_xmax.Text = f"{current_xmax:.6g}"
+        edt_xmax.Text = f"{visible_xmax:.6g}"
         
         lbl_xmax_cur = vcl.TLabel(Form)
         lbl_xmax_cur.Parent = Form
@@ -136,7 +142,7 @@ def morph_series(Action):
         edt_ymin.Left = 100
         edt_ymin.Top = y_top
         edt_ymin.Width = 120
-        edt_ymin.Text = f"{current_ymin:.6g}"
+        edt_ymin.Text = f"{visible_ymin:.6g}"
         
         lbl_ymin_cur = vcl.TLabel(Form)
         lbl_ymin_cur.Parent = Form
@@ -160,7 +166,7 @@ def morph_series(Action):
         edt_ymax.Left = 100
         edt_ymax.Top = y_top
         edt_ymax.Width = 120
-        edt_ymax.Text = f"{current_ymax:.6g}"
+        edt_ymax.Text = f"{visible_ymax:.6g}"
         
         lbl_ymax_cur = vcl.TLabel(Form)
         lbl_ymax_cur.Parent = Form
