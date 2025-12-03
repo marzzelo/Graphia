@@ -1,12 +1,12 @@
 {
   "xaxis": {
-    "min": -18.5224,
-    "max": 203.74640000000002,
+    "min": -2.2431,
+    "max": 24.6741,
     "title": "tiempo [h]"
   },
   "yaxis": {
-    "min": -1407.7715,
-    "max": 4594.1065,
+    "min": -426.0543954,
+    "max": 4686.5983494,
     "title": "Carga [daN]"
   },
   "config": {
@@ -36,7 +36,7 @@
       "style": []
     },
     "title": {
-      "name": "Unispace",
+      "name": "Consolas",
       "size": 20,
       "color": 0,
       "style": [
