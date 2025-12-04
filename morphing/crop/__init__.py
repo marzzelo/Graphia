@@ -15,7 +15,7 @@ from common import (
 )
 
 PluginName = "Crop/Cut"
-PluginVersion = "1.1"
+PluginVersion = "1.3"
 PluginDescription = "Draw rectangles or crop/cut data based on selected area."
 
 
@@ -48,7 +48,7 @@ def CropCutDialog(Action):
     try:
         Form.Caption = "Crop / Cut"
         Form.Width = 500
-        Form.Height = 520
+        Form.Height = 560
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
         
@@ -71,21 +71,67 @@ def CropCutDialog(Action):
         pnl_area.Left = 10
         pnl_area.Top = 35
         pnl_area.Width = 470
-        pnl_area.Height = 130
+        pnl_area.Height = 165
         pnl_area.BevelOuter = "bvLowered"
+        
+        # Build list of rectangle series
+        rect_series_list = []  # List of (name, series) tuples
+        for item in Graph.FunctionList:
+            if hasattr(item, 'LegendText') and item.LegendText and 'Rect' in item.LegendText:
+                rect_series_list.append((item.LegendText, item))
+        
+        # Area source selector
+        lbl_source = vcl.TLabel(Form)
+        lbl_source.Parent = pnl_area
+        lbl_source.Caption = "Source:"
+        lbl_source.Left = 15
+        lbl_source.Top = 15
+        labels.append(lbl_source)
+        
+        cmb_source = vcl.TComboBox(Form)
+        cmb_source.Parent = pnl_area
+        cmb_source.Left = 80
+        cmb_source.Top = 12
+        cmb_source.Width = 370
+        cmb_source.Style = 2  # csDropDownList - read only
+        cmb_source.Items.Add("Visible Area")
+        for name, _ in rect_series_list:
+            cmb_source.Items.Add(name)
+        cmb_source.ItemIndex = 0
+        
+        # Function to update coordinates from selected source
+        def on_source_change(Sender):
+            idx = cmb_source.ItemIndex
+            if idx == 0:
+                # Visible Area
+                edt_xleft.Text = f"{x_min_default:.6g}"
+                edt_xright.Text = f"{x_max_default:.6g}"
+                edt_ybottom.Text = f"{y_min_default:.6g}"
+                edt_ytop.Text = f"{y_max_default:.6g}"
+            elif idx > 0 and idx <= len(rect_series_list):
+                # Rectangle series
+                _, rect_series = rect_series_list[idx - 1]
+                rx_vals, ry_vals = get_series_data(rect_series)
+                if rx_vals and ry_vals:
+                    edt_xleft.Text = f"{min(rx_vals):.6g}"
+                    edt_xright.Text = f"{max(rx_vals):.6g}"
+                    edt_ybottom.Text = f"{min(ry_vals):.6g}"
+                    edt_ytop.Text = f"{max(ry_vals):.6g}"
+        
+        cmb_source.OnChange = on_source_change
         
         # X Left
         lbl_xleft = vcl.TLabel(Form)
         lbl_xleft.Parent = pnl_area
         lbl_xleft.Caption = "X Left:"
         lbl_xleft.Left = 15
-        lbl_xleft.Top = 15
+        lbl_xleft.Top = 48
         labels.append(lbl_xleft)
         
         edt_xleft = vcl.TEdit(Form)
         edt_xleft.Parent = pnl_area
         edt_xleft.Left = 80
-        edt_xleft.Top = 12
+        edt_xleft.Top = 45
         edt_xleft.Width = 120
         edt_xleft.Text = f"{x_min_default:.6g}"
         
@@ -93,7 +139,7 @@ def CropCutDialog(Action):
         lbl_xleft_info.Parent = pnl_area
         lbl_xleft_info.Caption = f"xmin: {series_x_min:.4g}" if series_x_min is not None else "xmin: N/A"
         lbl_xleft_info.Left = 210
-        lbl_xleft_info.Top = 15
+        lbl_xleft_info.Top = 48
         lbl_xleft_info.Font.Color = 0x666666
         labels.append(lbl_xleft_info)
         
@@ -102,13 +148,13 @@ def CropCutDialog(Action):
         lbl_xright.Parent = pnl_area
         lbl_xright.Caption = "X Right:"
         lbl_xright.Left = 15
-        lbl_xright.Top = 43
+        lbl_xright.Top = 76
         labels.append(lbl_xright)
         
         edt_xright = vcl.TEdit(Form)
         edt_xright.Parent = pnl_area
         edt_xright.Left = 80
-        edt_xright.Top = 40
+        edt_xright.Top = 73
         edt_xright.Width = 120
         edt_xright.Text = f"{x_max_default:.6g}"
         
@@ -116,7 +162,7 @@ def CropCutDialog(Action):
         lbl_xright_info.Parent = pnl_area
         lbl_xright_info.Caption = f"xmax: {series_x_max:.4g}" if series_x_max is not None else "xmax: N/A"
         lbl_xright_info.Left = 210
-        lbl_xright_info.Top = 43
+        lbl_xright_info.Top = 76
         lbl_xright_info.Font.Color = 0x666666
         labels.append(lbl_xright_info)
         
@@ -125,13 +171,13 @@ def CropCutDialog(Action):
         lbl_ybottom.Parent = pnl_area
         lbl_ybottom.Caption = "Y Bottom:"
         lbl_ybottom.Left = 15
-        lbl_ybottom.Top = 71
+        lbl_ybottom.Top = 104
         labels.append(lbl_ybottom)
         
         edt_ybottom = vcl.TEdit(Form)
         edt_ybottom.Parent = pnl_area
         edt_ybottom.Left = 80
-        edt_ybottom.Top = 68
+        edt_ybottom.Top = 101
         edt_ybottom.Width = 120
         edt_ybottom.Text = f"{y_min_default:.6g}"
         
@@ -139,7 +185,7 @@ def CropCutDialog(Action):
         lbl_ybottom_info.Parent = pnl_area
         lbl_ybottom_info.Caption = f"ymin: {series_y_min:.4g}" if series_y_min is not None else "ymin: N/A"
         lbl_ybottom_info.Left = 210
-        lbl_ybottom_info.Top = 71
+        lbl_ybottom_info.Top = 104
         lbl_ybottom_info.Font.Color = 0x666666
         labels.append(lbl_ybottom_info)
         
@@ -148,13 +194,13 @@ def CropCutDialog(Action):
         lbl_ytop.Parent = pnl_area
         lbl_ytop.Caption = "Y Top:"
         lbl_ytop.Left = 15
-        lbl_ytop.Top = 99
+        lbl_ytop.Top = 132
         labels.append(lbl_ytop)
         
         edt_ytop = vcl.TEdit(Form)
         edt_ytop.Parent = pnl_area
         edt_ytop.Left = 80
-        edt_ytop.Top = 96
+        edt_ytop.Top = 129
         edt_ytop.Width = 120
         edt_ytop.Text = f"{y_max_default:.6g}"
         
@@ -162,7 +208,7 @@ def CropCutDialog(Action):
         lbl_ytop_info.Parent = pnl_area
         lbl_ytop_info.Caption = f"ymax: {series_y_max:.4g}" if series_y_max is not None else "ymax: N/A"
         lbl_ytop_info.Left = 210
-        lbl_ytop_info.Top = 99
+        lbl_ytop_info.Top = 132
         lbl_ytop_info.Font.Color = 0x666666
         labels.append(lbl_ytop_info)
         
@@ -172,7 +218,7 @@ def CropCutDialog(Action):
         sep1 = vcl.TBevel(Form)
         sep1.Parent = Form
         sep1.Left = 10
-        sep1.Top = 175
+        sep1.Top = 210
         sep1.Width = 470
         sep1.Height = 2
         sep1.Shape = "bsTopLine"
@@ -181,7 +227,7 @@ def CropCutDialog(Action):
         lbl_mode.Parent = Form
         lbl_mode.Caption = "Output Mode"
         lbl_mode.Left = 10
-        lbl_mode.Top = 185
+        lbl_mode.Top = 220
         lbl_mode.Font.Style = {"fsBold"}
         labels.append(lbl_mode)
         
@@ -189,7 +235,7 @@ def CropCutDialog(Action):
         pnl_mode = vcl.TPanel(Form)
         pnl_mode.Parent = Form
         pnl_mode.Left = 10
-        pnl_mode.Top = 208
+        pnl_mode.Top = 243
         pnl_mode.Width = 470
         pnl_mode.Height = 60
         pnl_mode.BevelOuter = "bvNone"
@@ -228,7 +274,7 @@ def CropCutDialog(Action):
         sep2 = vcl.TBevel(Form)
         sep2.Parent = Form
         sep2.Left = 10
-        sep2.Top = 278
+        sep2.Top = 313
         sep2.Width = 470
         sep2.Height = 2
         sep2.Shape = "bsTopLine"
@@ -237,7 +283,7 @@ def CropCutDialog(Action):
         lbl_actions.Parent = Form
         lbl_actions.Caption = "Actions"
         lbl_actions.Left = 10
-        lbl_actions.Top = 288
+        lbl_actions.Top = 323
         lbl_actions.Font.Style = {"fsBold"}
         labels.append(lbl_actions)
         
@@ -245,7 +291,7 @@ def CropCutDialog(Action):
         pnl_actions = vcl.TPanel(Form)
         pnl_actions.Parent = Form
         pnl_actions.Left = 10
-        pnl_actions.Top = 310
+        pnl_actions.Top = 345
         pnl_actions.Width = 470
         pnl_actions.Height = 120
         pnl_actions.BevelOuter = "bvLowered"
@@ -357,6 +403,32 @@ def CropCutDialog(Action):
                           if y < ybottom or y > ytop]
             apply_filtered_points(new_points, "Cut Y")
         
+        # Crop XY - keep points inside both X and Y range
+        def on_crop_xy(Sender):
+            if not series or not x_vals:
+                show_error("No series selected.", "Crop/Cut")
+                return
+            area = get_area_values()
+            if not area:
+                return
+            xleft, xright, ybottom, ytop = area
+            new_points = [Point(x, y) for x, y in zip(x_vals, y_vals) 
+                          if xleft <= x <= xright and ybottom <= y <= ytop]
+            apply_filtered_points(new_points, "Crop XY")
+        
+        # Cut XY - remove points inside both X and Y range
+        def on_cut_xy(Sender):
+            if not series or not x_vals:
+                show_error("No series selected.", "Crop/Cut")
+                return
+            area = get_area_values()
+            if not area:
+                return
+            xleft, xright, ybottom, ytop = area
+            new_points = [Point(x, y) for x, y in zip(x_vals, y_vals) 
+                          if not (xleft <= x <= xright and ybottom <= y <= ytop)]
+            apply_filtered_points(new_points, "Cut XY")
+        
         # Draw Rectangle
         def on_draw_rect(Sender):
             area = get_area_values()
@@ -446,12 +518,34 @@ def CropCutDialog(Action):
         btn_cut_y.Hint = "Remove points inside Y range"
         btn_cut_y.ShowHint = True
         
+        btn_crop_xy = vcl.TButton(Form)
+        btn_crop_xy.Parent = pnl_actions
+        btn_crop_xy.Caption = "Crop XY"
+        btn_crop_xy.Left = 245
+        btn_crop_xy.Top = 15
+        btn_crop_xy.Width = 100
+        btn_crop_xy.Height = 28
+        btn_crop_xy.OnClick = on_crop_xy
+        btn_crop_xy.Hint = "Keep points inside XY area"
+        btn_crop_xy.ShowHint = True
+        
+        btn_cut_xy = vcl.TButton(Form)
+        btn_cut_xy.Parent = pnl_actions
+        btn_cut_xy.Caption = "Cut XY"
+        btn_cut_xy.Left = 245
+        btn_cut_xy.Top = 50
+        btn_cut_xy.Width = 100
+        btn_cut_xy.Height = 28
+        btn_cut_xy.OnClick = on_cut_xy
+        btn_cut_xy.Hint = "Remove points inside XY area"
+        btn_cut_xy.ShowHint = True
+        
         btn_draw_rect = vcl.TButton(Form)
         btn_draw_rect.Parent = pnl_actions
         btn_draw_rect.Caption = "Draw Rectangle"
         btn_draw_rect.Left = 15
         btn_draw_rect.Top = 85
-        btn_draw_rect.Width = 210
+        btn_draw_rect.Width = 330
         btn_draw_rect.Height = 28
         btn_draw_rect.OnClick = on_draw_rect
         btn_draw_rect.Hint = "Draw a rectangle around the selected area"
@@ -463,7 +557,7 @@ def CropCutDialog(Action):
         sep3 = vcl.TBevel(Form)
         sep3.Parent = Form
         sep3.Left = 10
-        sep3.Top = 440
+        sep3.Top = 475
         sep3.Width = 470
         sep3.Height = 2
         sep3.Shape = "bsTopLine"
@@ -474,7 +568,7 @@ def CropCutDialog(Action):
         btn_ok.ModalResult = 1  # mrOk
         btn_ok.Default = True
         btn_ok.Left = 290
-        btn_ok.Top = 455
+        btn_ok.Top = 490
         btn_ok.Width = 90
         btn_ok.Height = 30
         
@@ -484,7 +578,7 @@ def CropCutDialog(Action):
         btn_cancel.ModalResult = 2  # mrCancel
         btn_cancel.Cancel = True
         btn_cancel.Left = 390
-        btn_cancel.Top = 455
+        btn_cancel.Top = 490
         btn_cancel.Width = 90
         btn_cancel.Height = 30
         
