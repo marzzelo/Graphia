@@ -5,4 +5,8 @@ Exporting plugins for Graph.
 Contains modules for exporting data to various formats.
 """
 
-from . import CSVExporter
+# Protected imports - allows individual plugins to be disabled
+try:
+    from . import CSVExporter
+except ImportError:
+    pass

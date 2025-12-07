@@ -1,10 +1,33 @@
 # morphing/__init__.py
 # Package for waveform manipulation and analysis tools
 
-# Importar sub-plugins para que se registren al cargar este paquete
-from . import signal_info
-from . import resample
-from . import morph
-from . import apply_function
-from . import linear_combination
-from . import crop
+# Protected imports - allows individual plugins to be disabled
+try:
+    from . import signal_info
+except ImportError:
+    pass
+
+try:
+    from . import resample
+except ImportError:
+    pass
+
+try:
+    from . import morph
+except ImportError:
+    pass
+
+try:
+    from . import apply_function
+except ImportError:
+    pass
+
+try:
+    from . import linear_combination
+except ImportError:
+    pass
+
+try:
+    from . import crop
+except ImportError:
+    pass

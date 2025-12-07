@@ -1,8 +1,28 @@
 # wfgen package
 # This package contains signal generation plugins for Graph
 
-from . import SinePointsGenerator
-from . import SpikeGenerator
-from . import NoiseGenerator
-from . import AIFunctionGenerator
-from . import FunctionSampler
+# Protected imports - allows individual plugins to be disabled
+try:
+    from . import SinePointsGenerator
+except ImportError:
+    pass
+
+try:
+    from . import SpikeGenerator
+except ImportError:
+    pass
+
+try:
+    from . import NoiseGenerator
+except ImportError:
+    pass
+
+try:
+    from . import AIFunctionGenerator
+except ImportError:
+    pass
+
+try:
+    from . import FunctionSampler
+except ImportError:
+    pass

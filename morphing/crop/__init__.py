@@ -461,12 +461,7 @@ def CropCutDialog(Action):
             rect_series.FillColor = color_val
             rect_series.FrameColor = color_val
             
-            # Dashed line style
-            try:
-                rect_series.LineStyle = Graph.psDash
-            except AttributeError:
-                rect_series.LineStyle = 2  # 2 is dotted line
-                
+            rect_series.LineStyle = 2  # 2 is dotted line          
             rect_series.ShowLabels = False
             
             Graph.FunctionList.append(rect_series)
@@ -598,4 +593,4 @@ Action = Graph.CreateAction(
 )
 
 # Add to Plugins -> Morphing menu
-Graph.AddActionToMainMenu(Action, TopMenu="Plugins", SubMenus=["Graphîa", "Morphing"])
+Graph.AddActionToMainMenu(Action, TopMenu="Plugins", SubMenus=["Graphîa", "Morphing"]) # type: ignore
