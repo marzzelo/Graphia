@@ -56,8 +56,8 @@ def fft_dialog(Action):
     dx_avg = stats['dx_avg']
     
     # Default n = number of points in the series (no zero-padding by default)
-    n_default = n_points
-    n_power2 = next_power_of_two(n_points)
+    n_default = n_points - 1
+    n_power2 = next_power_of_two(n_points - 1)
     
     # Estimate sample rate from average dx
     if dx_avg > 0:

@@ -21,3 +21,8 @@ try:
     from . import welch
 except ImportError:
     pass
+
+try:
+    from . import ifft
+except ImportError:
+    pass
