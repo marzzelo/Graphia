@@ -1,42 +1,20 @@
 # Plugin to sample a function at discrete points
 # Generates a TPointSeries from the evaluation of f(x) at x_i = t0 + i*Ts
 import os
-import re
 import math
 
 # Import common module (automatically configures venv)
 from common import (
-    show_error, safe_color, Point, Graph, vcl
+    show_error, safe_color, Point, Graph, vcl,
+    get_selected_function, get_function_info, sample_std_function
 )
 
 PluginName = "Function Sampler"
 PluginVersion = "1.0"
 PluginDescription = "Samples the selected function at discrete points with a given sampling period."
 
-
-def get_selected_function():
-    """
-    Gets the function (TStdFunc) selected in the Graph function panel.
-    
-    Returns:
-        tuple: (TStdFunc, None) if there is a valid selected function
-               (None, str) with error message if no valid selection
-    """
-    selected = Graph.Selected
-    
-    if selected is None:
-        return None, "No item selected in the function panel."
-    
-    # Check if it's a TStdFunc
-    if not isinstance(selected, Graph.TStdFunc):
-        type_name = type(selected).__name__
-        return None, f"The selected item is not a standard function (TStdFunc).\nCurrent type: {type_name}"
-    
-    return selected, None
-
-
 def sample_function(Action):
-    """Samples the selected function at discrete points."""
+    """Samples the selected function at discrete points (dialog interface)."""
     
     # Check that a TStdFunc is selected
     func, error_msg = get_selected_function()
@@ -45,51 +23,13 @@ def sample_function(Action):
         show_error(error_msg, "Function Sampler")
         return
     
-    # Get function properties
+    # Get function properties using helper from common
     try:
-        # Try different attributes to get the equation text
-        # In Graph, TStdFunc stores the equation in .Text property
-        func_text = None
-        for attr in ['Text', 'text', 'Equation', 'equation', 'Formula', 'formula']:
-            if hasattr(func, attr):
-                val = getattr(func, attr)
-                if val and str(val) != 'f(x)':
-                    func_text = str(val)
-                    break
-        
-        # If still not found, try LegendText as fallback
-        if not func_text and hasattr(func, 'LegendText') and func.LegendText:
-            func_text = str(func.LegendText)
-        
-        if not func_text:
-            func_text = "unknown"
-        
-        # From and To may be strings or numbers, convert to float
-        # Use Graph.Eval to handle expressions like "2*pi"
-        x_from_raw = func.From if hasattr(func, 'From') else None
-        x_to_raw = func.To if hasattr(func, 'To') else None
-        
-        # Convert From value
-        if x_from_raw in (None, '', '-INF', '-∞'):
-            x_from = -10.0
-        else:
-            try:
-                x_from = float(x_from_raw)
-            except (ValueError, TypeError):
-                # Try evaluating as expression
-                x_from = float(Graph.Eval(str(x_from_raw)))
-        
-        # Convert To value
-        if x_to_raw in (None, '', 'INF', '+INF', '∞', '+∞'):
-            x_to = 10.0
-        else:
-            try:
-                x_to = float(x_to_raw)
-            except (ValueError, TypeError):
-                # Try evaluating as expression
-                x_to = float(Graph.Eval(str(x_to_raw)))
-                
-    except Exception as e:
+        func_info = get_function_info(func)
+        func_text = func_info['text']
+        x_from = func_info['x_from']
+        x_to = func_info['x_to']
+    except Exception:
         func_text = "unknown"
         x_from = -10.0
         x_to = 10.0
@@ -310,48 +250,13 @@ def sample_function(Action):
         # Show dialog
         if Form.ShowModal() == 1:
             try:
-                # Get parameters
+                # Get parameters from dialog
                 ts = float(edit_ts.Text)
                 t0 = float(edit_t0.Text)
                 tf = float(edit_tf.Text)
                 
-                if ts <= 0:
-                    raise ValueError("Sampling period must be > 0")
-                if tf <= t0:
-                    raise ValueError("End time must be > Start time")
-                
-                # Generate sample points
-                count = int((tf - t0) / ts) + 1
-                x_vals = [t0 + i * ts for i in range(count)]
-                
-                # Evaluate function at each point
-                y_vals = []
-                errors = []
-                for x in x_vals:
-                    try:
-                        # Try CalcY first (common method in Graph for functions)
-                        if hasattr(func, 'CalcY'):
-                            y = func.CalcY(float(x))
-                        elif hasattr(func, 'Calc'):
-                            y = func.Calc(float(x))
-                        else:
-                            # Fallback: evaluate using Graph.Eval with substitution
-                            # Replace 'x' with the value (handling cases like 'x^2', 'sin(x)', etc.)
-                            expr = re.sub(r'\bx\b', f'({x})', func_text)
-                            y = Graph.Eval(expr)
-                        y_vals.append(float(y))
-                    except Exception as e:
-                        # If evaluation fails, use NaN
-                        y_vals.append(float('nan'))
-                        if len(errors) < 3:
-                            errors.append(f"x={x:.4g}: {str(e)}")
-                
-                if errors:
-                    error_preview = "\n".join(errors)
-                    if len(errors) >= 3:
-                        error_preview += "\n..."
-                    # Show warning but continue
-                    # show_warning(f"Some points could not be evaluated:\n{error_preview}", "Function Sampler")
+                # Use the decoupled sampling function from common
+                x_vals, y_vals, errors = sample_std_function(func, ts, t0, tf)
                 
                 # Filter out NaN values
                 valid_points = [(x, y) for x, y in zip(x_vals, y_vals) if not math.isnan(y)]

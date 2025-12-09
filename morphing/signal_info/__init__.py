@@ -27,12 +27,12 @@ def add_info_functions(x_min, x_max, y_min, y_max, y_mean, y_median, y_std):
     
     # Lista de funciones a agregar: (valor, label, color)
     functions_to_add = [
-        (y_min, f"(info) Ymin = {y_min:.4g}", colors['ymin']),
-        (y_max, f"(info) Ymax = {y_max:.4g}", colors['ymax']),
-        (y_mean, f"(info) Mean(Y) = {y_mean:.4g}", colors['mean']),
-        (y_median, f"(info) Median(Y) = {y_median:.4g}", colors['median']),
-        (y_median + y_std, f"(info) +std = {y_median + y_std:.4g}", colors['std_plus']),
-        (y_median - y_std, f"(info) -std = {y_median - y_std:.4g}", colors['std_minus']),
+        (y_min, f"(info) Ymin = {y_min:.4G}", colors['ymin']),
+        (y_max, f"(info) Ymax = {y_max:.4G}", colors['ymax']),
+        (y_mean, f"(info) Mean(Y) = {y_mean:.4G}", colors['mean']),
+        (y_median, f"(info) Median(Y) = {y_median:.4G}", colors['median']),
+        (y_median + y_std, f"(info) +std = {y_median + y_std:.4G}", colors['std_plus']),
+        (y_median - y_std, f"(info) -std = {y_median - y_std:.4G}", colors['std_minus']),
     ]
     
     for value, label, color in functions_to_add:

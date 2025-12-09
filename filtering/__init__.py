@@ -6,3 +6,9 @@ try:
     from . import firwin
 except ImportError:
     pass
+
+# add convolution
+try:
+    from . import convolution
+except ImportError:
+    pass
