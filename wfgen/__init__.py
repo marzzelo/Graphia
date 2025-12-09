@@ -26,3 +26,13 @@ try:
     from . import FunctionSampler
 except ImportError:
     pass
+
+try:
+    from . import GaussPulse
+except ImportError:
+    pass
+
+try:
+    from . import SquareWave
+except ImportError:
+    pass
