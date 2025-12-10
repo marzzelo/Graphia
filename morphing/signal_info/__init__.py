@@ -128,7 +128,7 @@ def show_signal_statistics(Action):
     try:
         Form.Caption = "Signal Info - Statistics"
         Form.Width = 380
-        Form.Height = 470
+        Form.Height = 520
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
         
@@ -229,12 +229,38 @@ def show_signal_statistics(Action):
         btn_set_median.Width = 60
         btn_set_median.Height = 25
         
+        # Detrend section
+        lbl_detrend = vcl.TLabel(Form)
+        lbl_detrend.Parent = Form
+        lbl_detrend.Caption = "Detrend:"
+        lbl_detrend.Left = 20
+        lbl_detrend.Top = 368
+        labels.append(lbl_detrend)
+        
+        cmb_detrend = vcl.TComboBox(Form)
+        cmb_detrend.Parent = Form
+        cmb_detrend.Left = 100
+        cmb_detrend.Top = 365
+        cmb_detrend.Width = 100
+        cmb_detrend.Style = 2  # csDropDownList
+        cmb_detrend.Items.Add("constant")
+        cmb_detrend.Items.Add("linear")
+        cmb_detrend.ItemIndex = 0
+        
+        btn_detrend = vcl.TButton(Form)
+        btn_detrend.Parent = Form
+        btn_detrend.Caption = "Apply"
+        btn_detrend.Left = 210
+        btn_detrend.Top = 363
+        btn_detrend.Width = 60
+        btn_detrend.Height = 25
+        
         # Botones
         btn_visualize = vcl.TButton(Form)
         btn_visualize.Parent = Form
         btn_visualize.Caption = "Visualize"
         btn_visualize.Left = 20
-        btn_visualize.Top = 380
+        btn_visualize.Top = 430
         btn_visualize.Width = 100
         btn_visualize.Height = 30
         
@@ -242,7 +268,7 @@ def show_signal_statistics(Action):
         btn_clear.Parent = Form
         btn_clear.Caption = "Clear Info"
         btn_clear.Left = 135
-        btn_clear.Top = 380
+        btn_clear.Top = 430
         btn_clear.Width = 100
         btn_clear.Height = 30
         
@@ -252,7 +278,7 @@ def show_signal_statistics(Action):
         btn_close.ModalResult = 2
         btn_close.Cancel = True
         btn_close.Left = 250
-        btn_close.Top = 380
+        btn_close.Top = 430
         btn_close.Width = 100
         btn_close.Height = 30
         
@@ -302,10 +328,28 @@ def show_signal_statistics(Action):
             
             Graph.Redraw()
         
+        def on_detrend_click(Sender):
+            from scipy import signal as scipy_signal
+            from common import Point
+            
+            detrend_type = cmb_detrend.Items[cmb_detrend.ItemIndex]
+            
+            # Apply scipy.signal.detrend
+            # 'constant' removes mean, 'linear' removes linear trend
+            y_detrended = scipy_signal.detrend(y_arr, type=detrend_type)
+            
+            # Create new points with detrended Y values
+            new_points = [Point(x_arr[i], float(y_detrended[i])) for i in range(len(x_arr))]
+            series.Points = new_points
+            
+            Graph.Redraw()
+            show_info(f"Detrend ({detrend_type}) applied successfully.", "Signal Info")
+        
         btn_visualize.OnClick = on_visualize_click
         btn_clear.OnClick = on_clear_click
         btn_set_mean.OnClick = on_set_mean_click
         btn_set_median.OnClick = on_set_median_click
+        btn_detrend.OnClick = on_detrend_click
         
         Form.ShowModal()
     

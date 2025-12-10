@@ -11,7 +11,7 @@ import numpy as np
 from scipy.interpolate import CubicSpline, PchipInterpolator, Akima1DInterpolator
 
 PluginName = "Resample"
-PluginVersion = "1.0"
+PluginVersion = "1.1"
 PluginDescription = "Resamples a point series using interpolation."
 
 # Available interpolation methods
@@ -20,6 +20,14 @@ INTERP_METHODS = [
     "CubicSpline",
     "PchipInterpolator",
     "Akima1DInterpolator"
+]
+
+# Resampling modes
+RESAMPLE_MODES = [
+    "New Sampling Period",
+    "New Sampling Frequency",
+    "New Number of Points",
+    "Resample by Factor"
 ]
 
 
@@ -86,20 +94,24 @@ def resample_series(Action):
         sep1.Height = 2
         sep1.Shape = "bsTopLine"
         
-        # New sampling period
-        lbl_period = vcl.TLabel(Form)
-        lbl_period.Parent = Form
-        lbl_period.Caption = "New sampling period:"
-        lbl_period.Left = 20
-        lbl_period.Top = 80
-        labels.append(lbl_period)
+        # Resampling mode selector
+        cmb_mode = vcl.TComboBox(Form)
+        cmb_mode.Parent = Form
+        cmb_mode.Left = 20
+        cmb_mode.Top = 77
+        cmb_mode.Width = 170
+        cmb_mode.Style = 2  # csDropDownList
+        for mode in RESAMPLE_MODES:
+            cmb_mode.Items.Add(mode)
+        cmb_mode.ItemIndex = 0
         
-        edt_period = vcl.TEdit(Form)
-        edt_period.Parent = Form
-        edt_period.Left = 200
-        edt_period.Top = 77
-        edt_period.Width = 100
-        edt_period.Text = f"{current_period:.6g}"
+        # Value input field
+        edt_value = vcl.TEdit(Form)
+        edt_value.Parent = Form
+        edt_value.Left = 200
+        edt_value.Top = 77
+        edt_value.Width = 100
+        edt_value.Text = f"{current_period:.6g}"
         
         # Label for resulting point count
         lbl_new_points = vcl.TLabel(Form)
@@ -110,18 +122,57 @@ def resample_series(Action):
         lbl_new_points.Font.Color = 0x808080
         labels.append(lbl_new_points)
         
+        def update_default_value(Sender):
+            """Update default value and hint based on selected mode"""
+            mode_idx = cmb_mode.ItemIndex
+            if mode_idx == 0:  # New Sampling Period
+                edt_value.Text = f"{current_period:.6g}"
+            elif mode_idx == 1:  # New Sampling Frequency
+                current_freq = 1.0 / current_period if current_period > 0 else 1.0
+                edt_value.Text = f"{current_freq:.6g}"
+            elif mode_idx == 2:  # New Number of Points
+                edt_value.Text = f"{n_points}"
+            elif mode_idx == 3:  # Resample by Factor
+                edt_value.Text = "2.0"
+            update_points_count(None)
+        
         def update_points_count(Sender):
+            """Calculate resulting number of points based on mode and value"""
             try:
-                new_period = float(edt_period.Text)
-                if new_period > 0:
-                    new_count = int((x_max - x_min) / new_period) + 1
-                    lbl_new_points.Caption = f"(≈ {new_count} points)"
-                else:
-                    lbl_new_points.Caption = "(invalid period)"
+                val = float(edt_value.Text)
+                mode_idx = cmb_mode.ItemIndex
+                x_range = x_max - x_min
+                
+                if mode_idx == 0:  # New Sampling Period
+                    if val > 0:
+                        new_count = int(x_range / val) + 1
+                        lbl_new_points.Caption = f"(≈ {new_count} points)"
+                    else:
+                        lbl_new_points.Caption = "(invalid)"
+                elif mode_idx == 1:  # New Sampling Frequency
+                    if val > 0:
+                        new_period = 1.0 / val
+                        new_count = int(x_range / new_period) + 1
+                        lbl_new_points.Caption = f"(≈ {new_count} points)"
+                    else:
+                        lbl_new_points.Caption = "(invalid)"
+                elif mode_idx == 2:  # New Number of Points
+                    new_count = int(val)
+                    if new_count >= 2:
+                        lbl_new_points.Caption = f"(= {new_count} points)"
+                    else:
+                        lbl_new_points.Caption = "(min 2)"
+                elif mode_idx == 3:  # Resample by Factor
+                    if val > 0:
+                        new_count = int(n_points * val)
+                        lbl_new_points.Caption = f"(≈ {new_count} points)"
+                    else:
+                        lbl_new_points.Caption = "(invalid)"
             except:
                 lbl_new_points.Caption = "(error)"
         
-        edt_period.OnChange = update_points_count
+        cmb_mode.OnChange = update_default_value
+        edt_value.OnChange = update_points_count
         
         # Interpolation method
         lbl_method = vcl.TLabel(Form)
@@ -205,14 +256,37 @@ def resample_series(Action):
         if Form.ShowModal() == 1:
             try:
                 # Get parameters
-                new_period = float(edt_period.Text)
-                if new_period <= 0:
-                    raise ValueError("Period must be greater than 0")
-                
+                val = float(edt_value.Text)
+                mode_idx = cmb_mode.ItemIndex
                 method_idx = cb_method.ItemIndex
                 color = int(cb_color.Selected) & 0xFFFFFF
+                x_range = x_max - x_min
                 
-                # Generar nuevos puntos X
+                # Calculate new_period based on mode
+                if mode_idx == 0:  # New Sampling Period
+                    new_period = val
+                    if new_period <= 0:
+                        raise ValueError("Period must be greater than 0")
+                elif mode_idx == 1:  # New Sampling Frequency
+                    if val <= 0:
+                        raise ValueError("Frequency must be greater than 0")
+                    new_period = 1.0 / val
+                elif mode_idx == 2:  # New Number of Points
+                    new_n = int(val)
+                    if new_n < 2:
+                        raise ValueError("Number of points must be at least 2")
+                    new_period = x_range / (new_n - 1)
+                elif mode_idx == 3:  # Resample by Factor
+                    if val <= 0:
+                        raise ValueError("Factor must be greater than 0")
+                    new_n = int(n_points * val)
+                    if new_n < 2:
+                        new_n = 2
+                    new_period = x_range / (new_n - 1)
+                else:
+                    raise ValueError("Unrecognized mode")
+                
+                # Generate new X points
                 x_new = np.arange(x_min, x_max + new_period/2, new_period)
                 
                 # Interpolate according to selected method
