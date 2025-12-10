@@ -9,6 +9,7 @@ from common import (
 
 import numpy as np
 from scipy.interpolate import CubicSpline, PchipInterpolator, Akima1DInterpolator
+from scipy.signal import decimate
 
 PluginName = "Resample"
 PluginVersion = "1.1"
@@ -57,7 +58,7 @@ def resample_series(Action):
     try:
         Form.Caption = "Resample - Resampling with Interpolation"
         Form.Width = 420
-        Form.Height = 350
+        Form.Height = 395
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
         
@@ -142,11 +143,13 @@ def resample_series(Action):
                 val = float(edt_value.Text)
                 mode_idx = cmb_mode.ItemIndex
                 x_range = x_max - x_min
+                is_downsampling = False
                 
                 if mode_idx == 0:  # New Sampling Period
                     if val > 0:
                         new_count = int(x_range / val) + 1
                         lbl_new_points.Caption = f"(≈ {new_count} points)"
+                        is_downsampling = val > current_period  # Larger period = lower frequency
                     else:
                         lbl_new_points.Caption = "(invalid)"
                 elif mode_idx == 1:  # New Sampling Frequency
@@ -154,22 +157,33 @@ def resample_series(Action):
                         new_period = 1.0 / val
                         new_count = int(x_range / new_period) + 1
                         lbl_new_points.Caption = f"(≈ {new_count} points)"
+                        is_downsampling = new_period > current_period  # Larger period = lower frequency
                     else:
                         lbl_new_points.Caption = "(invalid)"
                 elif mode_idx == 2:  # New Number of Points
                     new_count = int(val)
                     if new_count >= 2:
                         lbl_new_points.Caption = f"(= {new_count} points)"
+                        is_downsampling = new_count < n_points
                     else:
                         lbl_new_points.Caption = "(min 2)"
                 elif mode_idx == 3:  # Resample by Factor
                     if val > 0:
                         new_count = int(n_points * val)
                         lbl_new_points.Caption = f"(≈ {new_count} points)"
+                        is_downsampling = val < 1.0  # Factor < 1 means fewer points
                     else:
                         lbl_new_points.Caption = "(invalid)"
+                
+                # Update button label and ftype visibility based on downsampling detection
+                btn_ok.Caption = "Downsample" if is_downsampling else "Resample"
+                lbl_ftype.Visible = is_downsampling
+                cb_ftype.Visible = is_downsampling
             except:
                 lbl_new_points.Caption = "(error)"
+                btn_ok.Caption = "Resample"
+                lbl_ftype.Visible = False
+                cb_ftype.Visible = False
         
         cmb_mode.OnChange = update_default_value
         edt_value.OnChange = update_points_count
@@ -192,18 +206,39 @@ def resample_series(Action):
             cb_method.Items.Add(method)
         cb_method.ItemIndex = 1  # CubicSpline por defecto
         
+        # Downsampling filter type selector
+        lbl_ftype = vcl.TLabel(Form)
+        lbl_ftype.Parent = Form
+        lbl_ftype.Caption = "Downsample filter type:"
+        lbl_ftype.Left = 20
+        lbl_ftype.Top = 160
+        lbl_ftype.Visible = False  # Initially hidden
+        labels.append(lbl_ftype)
+        
+        cb_ftype = vcl.TComboBox(Form)
+        cb_ftype.Parent = Form
+        cb_ftype.Left = 200
+        cb_ftype.Top = 157
+        cb_ftype.Width = 180
+        cb_ftype.Style = "csDropDownList"
+        cb_ftype.Items.Add("fir (default)")
+        cb_ftype.Items.Add("iir")
+        cb_ftype.Items.Add("None (use interpolation)")
+        cb_ftype.ItemIndex = 0  # fir por defecto
+        cb_ftype.Visible = False  # Initially hidden
+        
         # New series color
         lbl_color = vcl.TLabel(Form)
         lbl_color.Parent = Form
         lbl_color.Caption = "New series color:"
         lbl_color.Left = 20
-        lbl_color.Top = 160
+        lbl_color.Top = 200
         labels.append(lbl_color)
         
         cb_color = vcl.TColorBox(Form)
         cb_color.Parent = Form
         cb_color.Left = 200
-        cb_color.Top = 157
+        cb_color.Top = 197
         cb_color.Width = 120
         cb_color.Selected = 0x00AA00  # Verde por defecto
         
@@ -211,7 +246,7 @@ def resample_series(Action):
         pnl_help = vcl.TPanel(Form)
         pnl_help.Parent = Form
         pnl_help.Left = 20
-        pnl_help.Top = 200
+        pnl_help.Top = 240
         pnl_help.Width = 370
         pnl_help.Height = 70
         pnl_help.BevelOuter = "bvLowered"
@@ -239,7 +274,7 @@ def resample_series(Action):
         btn_ok.ModalResult = 1
         btn_ok.Default = True
         btn_ok.Left = 110
-        btn_ok.Top = 285
+        btn_ok.Top = 325
         btn_ok.Width = 100
         btn_ok.Height = 30
         
@@ -249,7 +284,7 @@ def resample_series(Action):
         btn_cancel.ModalResult = 2
         btn_cancel.Cancel = True
         btn_cancel.Left = 225
-        btn_cancel.Top = 285
+        btn_cancel.Top = 325
         btn_cancel.Width = 100
         btn_cancel.Height = 30
         
@@ -286,27 +321,58 @@ def resample_series(Action):
                 else:
                     raise ValueError("Unrecognized mode")
                 
-                # Generate new X points
-                x_new = np.arange(x_min, x_max + new_period/2, new_period)
+                # Detect if downsampling is needed
+                is_downsampling = new_period > current_period
+                ftype_idx = cb_ftype.ItemIndex
                 
-                # Interpolate according to selected method
-                if method_idx == 0:  # np.interp
-                    y_new = np.interp(x_new, x_orig, y_orig)
-                    method_name = "np.interp"
-                elif method_idx == 1:  # CubicSpline
-                    cs = CubicSpline(x_orig, y_orig)
-                    y_new = cs(x_new)
-                    method_name = "CubicSpline"
-                elif method_idx == 2:  # PchipInterpolator
-                    pchip = PchipInterpolator(x_orig, y_orig)
-                    y_new = pchip(x_new)
-                    method_name = "Pchip"
-                elif method_idx == 3:  # Akima1DInterpolator
-                    akima = Akima1DInterpolator(x_orig, y_orig)
-                    y_new = akima(x_new)
-                    method_name = "Akima"
+                if is_downsampling and ftype_idx < 2:  # Use decimate with fir or iir
+                    # Use scipy.signal.decimate for downsampling
+                    # Calculate decimation factor q (must be integer)
+                    q = int(round(new_period / current_period))
+                    if q < 2:
+                        q = 2  # Minimum decimation factor
+                    
+                    # Determine filter type
+                    ftype = 'fir' if ftype_idx == 0 else 'iir'
+                    
+                    # Apply decimate with selected ftype
+                    y_new = decimate(y_orig, q, ftype=ftype)
+                    
+                    # Generate corresponding X points
+                    x_new = x_orig[::q][:len(y_new)]  # Match the length of decimated output
+                    
+                    # Ensure x_new and y_new have the same length
+                    min_len = min(len(x_new), len(y_new))
+                    x_new = x_new[:min_len]
+                    y_new = y_new[:min_len]
+                    
+                    method_name = f"decimate(q={q}, ftype={ftype})"
                 else:
-                    raise ValueError("Unrecognized method")
+                    # Generate new X points for upsampling/resampling (or downsampling with interpolation)
+                    x_new = np.arange(x_min, x_max + new_period/2, new_period)
+                    
+                    # Interpolate according to selected method
+                    if method_idx == 0:  # np.interp
+                        y_new = np.interp(x_new, x_orig, y_orig)
+                        method_name = "np.interp"
+                    elif method_idx == 1:  # CubicSpline
+                        cs = CubicSpline(x_orig, y_orig)
+                        y_new = cs(x_new)
+                        method_name = "CubicSpline"
+                    elif method_idx == 2:  # PchipInterpolator
+                        pchip = PchipInterpolator(x_orig, y_orig)
+                        y_new = pchip(x_new)
+                        method_name = "Pchip"
+                    elif method_idx == 3:  # Akima1DInterpolator
+                        akima = Akima1DInterpolator(x_orig, y_orig)
+                        y_new = akima(x_new)
+                        method_name = "Akima"
+                    else:
+                        raise ValueError("Unrecognized method")
+                    
+                    # Update is_downsampling to false if using interpolation method
+                    if is_downsampling:
+                        is_downsampling = False  # Treat as resample since we used interpolation
                 
                 # Crear nueva serie
                 new_points = [Point(float(x), float(y)) for x, y in zip(x_new, y_new)]
@@ -314,7 +380,8 @@ def resample_series(Action):
                 new_series = Graph.TPointSeries()
                 new_series.PointType = Graph.ptCartesian
                 new_series.Points = new_points
-                new_series.LegendText = f"{point_series.LegendText} (resample {method_name})"
+                operation_type = "downsample" if is_downsampling else "resample"
+                new_series.LegendText = f"{point_series.LegendText} ({operation_type} {method_name})"
                 new_series.Size = 0
                 new_series.Style = 0
                 new_series.LineSize = 1
@@ -354,4 +421,4 @@ ResampleAction = Graph.CreateAction(
 )
 
 # Add action to Plugins menu
-Graph.AddActionToMainMenu(ResampleAction, TopMenu="Plugins", SubMenus=["Graphîa", "Morphing"])
+Graph.AddActionToMainMenu(ResampleAction, TopMenu="Plugins", SubMenus=["Graphîa", "Morphing"]) # type: ignore
