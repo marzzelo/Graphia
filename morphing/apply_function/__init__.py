@@ -37,6 +37,8 @@ def apply_function_to_series(Action):
         return
 
     n_points = len(y_vals)
+    x_min = min(x_vals)
+    x_max = max(x_vals)
     y_min = min(y_vals)
     y_max = max(y_vals)
 
@@ -45,7 +47,7 @@ def apply_function_to_series(Action):
     try:
         Form.Caption = "Apply Function to Series"
         Form.Width = 450
-        Form.Height = 570
+        Form.Height = 670
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
         
@@ -100,27 +102,111 @@ def apply_function_to_series(Action):
         series_name = series.LegendText if series.LegendText else "(unnamed)"
         lbl_series = vcl.TLabel(Form)
         lbl_series.Parent = Form
-        lbl_series.Caption = f"{series_name}  |  {n_points} points  |  Y ∈ [{y_min:.4g}, {y_max:.4g}]"
+        lbl_series.Caption = f"{series_name}  |  {n_points} points"
         lbl_series.Left = 20
         lbl_series.Top = 108
         lbl_series.Font.Color = 0x666666
         labels.append(lbl_series)
+        
+        lbl_series_range = vcl.TLabel(Form)
+        lbl_series_range.Parent = Form
+        lbl_series_range.Caption = f"X ∈ [{x_min:.4g}, {x_max:.4g}]  |  Y ∈ [{y_min:.4g}, {y_max:.4g}]"
+        lbl_series_range.Left = 20
+        lbl_series_range.Top = 126
+        lbl_series_range.Font.Color = 0x666666
+        labels.append(lbl_series_range)
 
         # Separator
         sep2 = vcl.TBevel(Form)
         sep2.Parent = Form
         sep2.Left = 10
-        sep2.Top = 135
+        sep2.Top = 150
         sep2.Width = 420
         sep2.Height = 2
         sep2.Shape = "bsTopLine"
+        
+        # Range limits section
+        lbl_range = vcl.TLabel(Form)
+        lbl_range.Parent = Form
+        lbl_range.Caption = "Apply to Range (points outside range are copied unchanged)"
+        lbl_range.Left = 10
+        lbl_range.Top = 160
+        lbl_range.Font.Style = {"fsBold"}
+        labels.append(lbl_range)
+        
+        # X range
+        lbl_xrange = vcl.TLabel(Form)
+        lbl_xrange.Parent = Form
+        lbl_xrange.Caption = "X from:"
+        lbl_xrange.Left = 20
+        lbl_xrange.Top = 188
+        labels.append(lbl_xrange)
+        
+        edt_x_min = vcl.TEdit(Form)
+        edt_x_min.Parent = Form
+        edt_x_min.Left = 70
+        edt_x_min.Top = 185
+        edt_x_min.Width = 100
+        edt_x_min.Text = f"{x_min:.6g}"
+        
+        lbl_xto = vcl.TLabel(Form)
+        lbl_xto.Parent = Form
+        lbl_xto.Caption = "to:"
+        lbl_xto.Left = 180
+        lbl_xto.Top = 188
+        labels.append(lbl_xto)
+        
+        edt_x_max = vcl.TEdit(Form)
+        edt_x_max.Parent = Form
+        edt_x_max.Left = 205
+        edt_x_max.Top = 185
+        edt_x_max.Width = 100
+        edt_x_max.Text = f"{x_max:.6g}"
+        
+        # Y range
+        lbl_yrange = vcl.TLabel(Form)
+        lbl_yrange.Parent = Form
+        lbl_yrange.Caption = "Y from:"
+        lbl_yrange.Left = 20
+        lbl_yrange.Top = 218
+        labels.append(lbl_yrange)
+        
+        edt_y_min = vcl.TEdit(Form)
+        edt_y_min.Parent = Form
+        edt_y_min.Left = 70
+        edt_y_min.Top = 215
+        edt_y_min.Width = 100
+        edt_y_min.Text = f"{y_min:.6g}"
+        
+        lbl_yto = vcl.TLabel(Form)
+        lbl_yto.Parent = Form
+        lbl_yto.Caption = "to:"
+        lbl_yto.Left = 180
+        lbl_yto.Top = 218
+        labels.append(lbl_yto)
+        
+        edt_y_max = vcl.TEdit(Form)
+        edt_y_max.Parent = Form
+        edt_y_max.Left = 205
+        edt_y_max.Top = 215
+        edt_y_max.Width = 100
+        edt_y_max.Text = f"{y_max:.6g}"
+
+        # Separator
+        sep2b = vcl.TBevel(Form)
+        sep2b.Parent = Form
+        sep2b.Left = 10
+        sep2b.Top = 250
+        sep2b.Width = 420
+        sep2b.Height = 2
+        sep2b.Shape = "bsTopLine"
         
         # Function input section
         lbl_func = vcl.TLabel(Form)
         lbl_func.Parent = Form
         lbl_func.Caption = "Functions"
         lbl_func.Left = 10
-        lbl_func.Top = 145
+        lbl_func.Top = 260
         lbl_func.Font.Style = {"fsBold"}
         labels.append(lbl_func)
         
@@ -129,14 +215,14 @@ def apply_function_to_series(Action):
         lbl_input_y.Parent = Form
         lbl_input_y.Caption = "f(y) ="
         lbl_input_y.Left = 20
-        lbl_input_y.Top = 173
+        lbl_input_y.Top = 288
         labels.append(lbl_input_y)
         
         # Function Y input field
         edt_function_y = vcl.TEdit(Form)
         edt_function_y.Parent = Form
         edt_function_y.Left = 60
-        edt_function_y.Top = 170
+        edt_function_y.Top = 285
         edt_function_y.Width = 360
         edt_function_y.Text = "y"  # Identity function by default
         
@@ -145,14 +231,14 @@ def apply_function_to_series(Action):
         lbl_input_x.Parent = Form
         lbl_input_x.Caption = "g(x) ="
         lbl_input_x.Left = 20
-        lbl_input_x.Top = 203
+        lbl_input_x.Top = 318
         labels.append(lbl_input_x)
         
         # Function X input field
         edt_function_x = vcl.TEdit(Form)
         edt_function_x.Parent = Form
         edt_function_x.Left = 60
-        edt_function_x.Top = 200
+        edt_function_x.Top = 315
         edt_function_x.Width = 360
         edt_function_x.Text = "x"  # Identity function by default
         
@@ -160,7 +246,7 @@ def apply_function_to_series(Action):
         pnl_examples = vcl.TPanel(Form)
         pnl_examples.Parent = Form
         pnl_examples.Left = 20
-        pnl_examples.Top = 230
+        pnl_examples.Top = 345
         pnl_examples.Width = 400
         pnl_examples.Height = 85
         pnl_examples.BevelOuter = "bvLowered"
@@ -183,7 +269,7 @@ def apply_function_to_series(Action):
         sep3 = vcl.TBevel(Form)
         sep3.Parent = Form
         sep3.Left = 10
-        sep3.Top = 325
+        sep3.Top = 440
         sep3.Width = 420
         sep3.Height = 2
         sep3.Shape = "bsTopLine"
@@ -193,7 +279,7 @@ def apply_function_to_series(Action):
         lbl_output.Parent = Form
         lbl_output.Caption = "Output"
         lbl_output.Left = 10
-        lbl_output.Top = 335
+        lbl_output.Top = 450
         lbl_output.Font.Style = {"fsBold"}
         labels.append(lbl_output)
         
@@ -201,7 +287,7 @@ def apply_function_to_series(Action):
         pnl_output = vcl.TPanel(Form)
         pnl_output.Parent = Form
         pnl_output.Left = 10
-        pnl_output.Top = 355
+        pnl_output.Top = 470
         pnl_output.Width = 420
         pnl_output.Height = 30
         pnl_output.BevelOuter = "bvNone"
@@ -224,13 +310,13 @@ def apply_function_to_series(Action):
         lbl_color.Parent = Form
         lbl_color.Caption = "Color (new series):"
         lbl_color.Left = 20
-        lbl_color.Top = 393
+        lbl_color.Top = 508
         labels.append(lbl_color)
         
         cb_color = vcl.TColorBox(Form)
         cb_color.Parent = Form
         cb_color.Left = 140
-        cb_color.Top = 390
+        cb_color.Top = 505
         cb_color.Width = 100
         cb_color.Selected = 0x00AA00  # Green by default
 
@@ -238,7 +324,7 @@ def apply_function_to_series(Action):
         sep4 = vcl.TBevel(Form)
         sep4.Parent = Form
         sep4.Left = 10
-        sep4.Top = 430
+        sep4.Top = 545
         sep4.Width = 420
         sep4.Height = 2
         sep4.Shape = "bsTopLine"
@@ -250,7 +336,7 @@ def apply_function_to_series(Action):
         btn_apply.ModalResult = 1  # mrOk
         btn_apply.Default = True
         btn_apply.Left = 130
-        btn_apply.Top = 450
+        btn_apply.Top = 565
         btn_apply.Width = 100
         btn_apply.Height = 30
         
@@ -260,7 +346,7 @@ def apply_function_to_series(Action):
         btn_cancel.ModalResult = 2  # mrCancel
         btn_cancel.Cancel = True
         btn_cancel.Left = 240
-        btn_cancel.Top = 450
+        btn_cancel.Top = 565
         btn_cancel.Width = 100
         btn_cancel.Height = 30
         
@@ -275,27 +361,43 @@ def apply_function_to_series(Action):
                 if not func_x_text:
                     func_x_text = "x"  # Default to identity
                 
+                # Get range limits
+                range_x_min = float(edt_x_min.Text)
+                range_x_max = float(edt_x_max.Text)
+                range_y_min = float(edt_y_min.Text)
+                range_y_max = float(edt_y_max.Text)
+                
                 # Apply functions to each X and Y value
                 new_x_vals = []
                 new_y_vals = []
                 errors = []
+                transformed_count = 0
                 
                 for i, (x, y) in enumerate(zip(x_vals, y_vals)):
-                    try:
-                        # Replace 'y' with the actual value for f(y)
-                        expr_y = re.sub(r'\by\b', f'({y})', func_y_text)
-                        new_y = float(Graph.Eval(expr_y))
-                        
-                        # Replace 'x' with the actual value for g(x)
-                        expr_x = re.sub(r'\bx\b', f'({x})', func_x_text)
-                        new_x = float(Graph.Eval(expr_x))
-                        
-                        new_x_vals.append(new_x)
-                        new_y_vals.append(new_y)
-                    except Exception as e:
-                        errors.append(f"x={x:.4g}, y={y:.4g}: {str(e)}")
-                        new_x_vals.append(float('nan'))
-                        new_y_vals.append(float('nan'))
+                    # Check if point is within the specified range
+                    in_range = (range_x_min <= x <= range_x_max) and (range_y_min <= y <= range_y_max)
+                    
+                    if in_range:
+                        try:
+                            # Replace 'y' with the actual value for f(y)
+                            expr_y = re.sub(r'\by\b', f'({y})', func_y_text)
+                            new_y = float(Graph.Eval(expr_y))
+                            
+                            # Replace 'x' with the actual value for g(x)
+                            expr_x = re.sub(r'\bx\b', f'({x})', func_x_text)
+                            new_x = float(Graph.Eval(expr_x))
+                            
+                            new_x_vals.append(new_x)
+                            new_y_vals.append(new_y)
+                            transformed_count += 1
+                        except Exception as e:
+                            errors.append(f"x={x:.4g}, y={y:.4g}: {str(e)}")
+                            new_x_vals.append(float('nan'))
+                            new_y_vals.append(float('nan'))
+                    else:
+                        # Point outside range - copy unchanged
+                        new_x_vals.append(x)
+                        new_y_vals.append(y)
                 
                 # Check for errors
                 import math

@@ -31,3 +31,9 @@ try:
     from . import crop
 except ImportError:
     pass
+
+
+try:
+    from . import spectral_interpolation
+except ImportError:
+    pass
