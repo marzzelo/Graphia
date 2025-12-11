@@ -76,7 +76,8 @@ def resample_series(Action):
         info_text = (
             f"Points: {n_points}  |  "
             f"X: [{x_min:.4g}, {x_max:.4g}]  |  "
-            f"ΔT ≈ {current_period:.4g}"
+            f"Ts ≈ {current_period:.4g}  |  "
+            f"Fs ≈ {1.0/current_period:.4g}"
         )
         lbl_info_val = vcl.TLabel(Form)
         lbl_info_val.Parent = Form
@@ -122,71 +123,6 @@ def resample_series(Action):
         lbl_new_points.Top = 80
         lbl_new_points.Font.Color = 0x808080
         labels.append(lbl_new_points)
-        
-        def update_default_value(Sender):
-            """Update default value and hint based on selected mode"""
-            mode_idx = cmb_mode.ItemIndex
-            if mode_idx == 0:  # New Sampling Period
-                edt_value.Text = f"{current_period:.6g}"
-            elif mode_idx == 1:  # New Sampling Frequency
-                current_freq = 1.0 / current_period if current_period > 0 else 1.0
-                edt_value.Text = f"{current_freq:.6g}"
-            elif mode_idx == 2:  # New Number of Points
-                edt_value.Text = f"{n_points}"
-            elif mode_idx == 3:  # Resample by Factor
-                edt_value.Text = "2.0"
-            update_points_count(None)
-        
-        def update_points_count(Sender):
-            """Calculate resulting number of points based on mode and value"""
-            try:
-                val = float(edt_value.Text)
-                mode_idx = cmb_mode.ItemIndex
-                x_range = x_max - x_min
-                is_downsampling = False
-                
-                if mode_idx == 0:  # New Sampling Period
-                    if val > 0:
-                        new_count = int(x_range / val) + 1
-                        lbl_new_points.Caption = f"(≈ {new_count} points)"
-                        is_downsampling = val > current_period  # Larger period = lower frequency
-                    else:
-                        lbl_new_points.Caption = "(invalid)"
-                elif mode_idx == 1:  # New Sampling Frequency
-                    if val > 0:
-                        new_period = 1.0 / val
-                        new_count = int(x_range / new_period) + 1
-                        lbl_new_points.Caption = f"(≈ {new_count} points)"
-                        is_downsampling = new_period > current_period  # Larger period = lower frequency
-                    else:
-                        lbl_new_points.Caption = "(invalid)"
-                elif mode_idx == 2:  # New Number of Points
-                    new_count = int(val)
-                    if new_count >= 2:
-                        lbl_new_points.Caption = f"(= {new_count} points)"
-                        is_downsampling = new_count < n_points
-                    else:
-                        lbl_new_points.Caption = "(min 2)"
-                elif mode_idx == 3:  # Resample by Factor
-                    if val > 0:
-                        new_count = int(n_points * val)
-                        lbl_new_points.Caption = f"(≈ {new_count} points)"
-                        is_downsampling = val < 1.0  # Factor < 1 means fewer points
-                    else:
-                        lbl_new_points.Caption = "(invalid)"
-                
-                # Update button label and ftype visibility based on downsampling detection
-                btn_ok.Caption = "Downsample" if is_downsampling else "Resample"
-                lbl_ftype.Visible = is_downsampling
-                cb_ftype.Visible = is_downsampling
-            except:
-                lbl_new_points.Caption = "(error)"
-                btn_ok.Caption = "Resample"
-                lbl_ftype.Visible = False
-                cb_ftype.Visible = False
-        
-        cmb_mode.OnChange = update_default_value
-        edt_value.OnChange = update_points_count
         
         # Interpolation method
         lbl_method = vcl.TLabel(Form)
@@ -287,6 +223,75 @@ def resample_series(Action):
         btn_cancel.Top = 325
         btn_cancel.Width = 100
         btn_cancel.Height = 30
+        
+        # ========== Event handlers (after all controls are created) ==========
+        def update_points_count(Sender):
+            """Calculate resulting number of points based on mode and value"""
+            try:
+                val = float(edt_value.Text)
+                mode_idx = cmb_mode.ItemIndex
+                x_range = x_max - x_min
+                is_downsampling = False
+                
+                if mode_idx == 0:  # New Sampling Period
+                    if val > 0:
+                        new_count = int(x_range / val) + 1
+                        lbl_new_points.Caption = f"(≈ {new_count} points)"
+                        is_downsampling = val > current_period  # Larger period = lower frequency
+                    else:
+                        lbl_new_points.Caption = "(invalid)"
+                elif mode_idx == 1:  # New Sampling Frequency
+                    if val > 0:
+                        new_period = 1.0 / val
+                        new_count = int(x_range / new_period) + 1
+                        lbl_new_points.Caption = f"(≈ {new_count} points)"
+                        is_downsampling = new_period > current_period  # Larger period = lower frequency
+                    else:
+                        lbl_new_points.Caption = "(invalid)"
+                elif mode_idx == 2:  # New Number of Points
+                    new_count = int(val)
+                    if new_count >= 2:
+                        lbl_new_points.Caption = f"(= {new_count} points)"
+                        is_downsampling = new_count < n_points
+                    else:
+                        lbl_new_points.Caption = "(min 2)"
+                elif mode_idx == 3:  # Resample by Factor
+                    if val > 0:
+                        new_count = int(n_points * val)
+                        lbl_new_points.Caption = f"(≈ {new_count} points)"
+                        is_downsampling = val < 1.0  # Factor < 1 means fewer points
+                    else:
+                        lbl_new_points.Caption = "(invalid)"
+                
+                # Update button label and ftype visibility based on downsampling detection
+                is_down = bool(is_downsampling)  # Convert numpy.bool_ to Python bool
+                btn_ok.Caption = "Downsample" if is_down else "Resample"
+                lbl_ftype.Visible = is_down
+                cb_ftype.Visible = is_down
+            except Exception as ex:
+                lbl_new_points.Caption = f"(error: {str(ex)})"
+                print(f"Error in update_points_count: {str(ex)}")
+                btn_ok.Caption = "Resample"
+                lbl_ftype.Visible = False
+                cb_ftype.Visible = False
+        
+        def update_default_value(Sender):
+            """Update default value and hint based on selected mode"""
+            mode_idx = cmb_mode.ItemIndex
+            if mode_idx == 0:  # New Sampling Period
+                edt_value.Text = f"{current_period:.6g}"
+            elif mode_idx == 1:  # New Sampling Frequency
+                current_freq = 1.0 / current_period if current_period > 0 else 1.0
+                edt_value.Text = f"{current_freq:.6g}"
+            elif mode_idx == 2:  # New Number of Points
+                edt_value.Text = f"{n_points}"
+            elif mode_idx == 3:  # Resample by Factor
+                edt_value.Text = "2.0"
+            update_points_count(None)
+        
+        # Assign event handlers
+        cmb_mode.OnChange = update_default_value
+        edt_value.OnChange = update_points_count
         
         if Form.ShowModal() == 1:
             try:

@@ -524,7 +524,7 @@ Action = Graph.CreateAction(
     Caption="FIR Bandpass Filter...", 
     OnExecute=fir_dialog, 
     Hint="Design and apply FIR bandpass filter using firwin",
-    IconFile=None  # No icon for now
+    IconFile=os.path.join(os.path.dirname(__file__), "Firwin_sm.png")
 )
 
 # Add to Plugins -> Filtering menu

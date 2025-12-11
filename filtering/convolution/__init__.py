@@ -507,7 +507,7 @@ Action = Graph.CreateAction(
     Caption="Convolution...", 
     OnExecute=convolution_dialog, 
     Hint="Convolve signal with a kernel (series or function)",
-    IconFile=None
+    IconFile=os.path.join(os.path.dirname(__file__), "Convolution_sm.png")
 )
 
 # Add to Plugins -> Filtering menu
