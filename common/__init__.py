@@ -357,6 +357,8 @@ def sample_std_function(func, ts, t0, tf):
     Samples a TStdFunc at discrete points.
     
     Evaluates the function at x_i = t0 + i*Ts and returns the resulting points.
+    Uses the function's Eval() method for maximum precision, which evaluates
+    the function using Graph's internal expression parser.
     
     Args:
         func: TStdFunc to sample (from Graph.Selected)
@@ -405,14 +407,20 @@ def sample_std_function(func, ts, t0, tf):
     errors = []
     for x in x_vals:
         try:
-            # Try CalcY first (common method in Graph for functions)
-            if hasattr(func, 'CalcY'):
+            # Use Eval() method from TBaseFuncType - returns tuple (x, y)
+            # This evaluates using Graph's internal parser with full precision
+            if hasattr(func, 'Eval'):
+                result = func.Eval(float(x))
+                # Eval returns (x_coord, y_coord) tuple
+                y = result[1]
+            elif hasattr(func, 'CalcY'):
+                # Fallback to CalcY if Eval not available
                 y = func.CalcY(float(x))
             elif hasattr(func, 'Calc'):
                 y = func.Calc(float(x))
             else:
-                # Fallback: evaluate using Graph.Eval with substitution
-                expr = re.sub(r'\bx\b', f'({x})', func_text)
+                # Last resort: evaluate using Graph.Eval with substitution
+                expr = re.sub(r'\bx\b', f'({x:.17g})', func_text)
                 y = Graph.Eval(expr)
             y_vals.append(float(y))
         except Exception as e:

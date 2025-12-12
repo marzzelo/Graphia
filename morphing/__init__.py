@@ -32,8 +32,12 @@ try:
 except ImportError:
     pass
 
-
 try:
     from . import spectral_interpolation
+except ImportError:
+    pass
+
+try:
+    from . import fill_segment
 except ImportError:
     pass
