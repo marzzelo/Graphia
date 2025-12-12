@@ -11,8 +11,8 @@ import numpy as np
 from scipy.ndimage import median_filter
 
 PluginName = "Selective Median Filter"
-PluginVersion = "1.1"
-PluginDescription = "Applies a median filter only to points that deviate significantly from their neighborhood."
+PluginVersion = "1.2"
+PluginDescription = "Detects outliers using a local median and replaces them using the local mean excluding outliers."
 
 
 def apply_median_filter(Action):
@@ -143,10 +143,10 @@ def apply_median_filter(Action):
         
         help_text = (
             f"1. For each point, the neighborhood median is calculated\n"
-            f"2. If |value - median| > threshold, it's replaced by median\n"
-            f"3. Points within threshold are NOT modified\n"
+            f"2. If |value - median| > threshold, the point is an outlier\n"
+            f"3. Outlier segments are replaced by a LINE that connects the bounding points\n"
             f"\n"
-            f"• Ideal for removing spikes while preserving original signal\n"
+            f"• Ideal for removing spikes while preserving the underlying trend\n"
             f"• Suggested threshold (2σ): {suggested_threshold:.4g}"
         )
         
@@ -231,18 +231,73 @@ def apply_median_filter(Action):
                 if threshold <= 0:
                     raise ValueError("El umbral debe ser mayor que 0")
                 
-                # Calcular mediana de la vecindad para cada punto
+                # 1) Calcular mediana local para detectar valores atípicos (robusto)
                 y_median = median_filter(y_vals, size=kernel_size, mode='nearest')
-                
-                # Calculate deviation of each point from local median
+
+                # 2) Detectar outliers por desviación respecto a la mediana local
                 deviation = np.abs(y_vals - y_median)
-                
-                # Create filtered signal: only replace points exceeding threshold
-                y_filtered = y_vals.copy()
                 outlier_mask = deviation > threshold
-                y_filtered[outlier_mask] = y_median[outlier_mask]
-                
-                n_modified = np.sum(outlier_mask)
+
+                # Tratar NaN como outlier (si existieran en la serie)
+                outlier_mask = outlier_mask | np.isnan(y_vals)
+
+                # 3) Reemplazar segmentos consecutivos de outliers con una recta
+                #    definida por los puntos NO atípicos que los delimitan.
+                y_filtered = y_vals.copy()
+                outlier_indices = np.where(outlier_mask)[0]
+                n_modified = int(outlier_indices.size)
+
+                if n_modified > 0:
+                    i = 0
+                    while i < outlier_indices.size:
+                        run_start = int(outlier_indices[i])
+                        run_end = run_start
+                        # Expandir el run
+                        while i + 1 < outlier_indices.size and int(outlier_indices[i + 1]) == run_end + 1:
+                            i += 1
+                            run_end = int(outlier_indices[i])
+
+                        # Buscar punto delimitador a la izquierda
+                        left = run_start - 1
+                        while left >= 0 and outlier_mask[left]:
+                            left -= 1
+
+                        # Buscar punto delimitador a la derecha
+                        right = run_end + 1
+                        while right < n_points and outlier_mask[right]:
+                            right += 1
+
+                        if left >= 0 and right < n_points:
+                            x0 = float(x_vals[left])
+                            y0 = float(y_vals[left])
+                            x1 = float(x_vals[right])
+                            y1 = float(y_vals[right])
+
+                            denom = (x1 - x0)
+                            if denom == 0:
+                                # X duplicado: no se puede interpolar; usar valor izquierdo
+                                for j in range(run_start, run_end + 1):
+                                    y_filtered[j] = y0
+                            else:
+                                for j in range(run_start, run_end + 1):
+                                    xj = float(x_vals[j])
+                                    y_filtered[j] = y0 + (y1 - y0) * ((xj - x0) / denom)
+                        elif left >= 0:
+                            # Segmento al final sin delimitador derecho: mantener último valor válido
+                            y0 = float(y_vals[left])
+                            for j in range(run_start, run_end + 1):
+                                y_filtered[j] = y0
+                        elif right < n_points:
+                            # Segmento al inicio sin delimitador izquierdo: mantener primer valor válido
+                            y1 = float(y_vals[right])
+                            for j in range(run_start, run_end + 1):
+                                y_filtered[j] = y1
+                        else:
+                            # Todo es atípico: fallback a mediana local
+                            for j in range(run_start, run_end + 1):
+                                y_filtered[j] = y_median[j]
+
+                        i += 1
                 
                 # Crear nuevos puntos
                 new_points = [Point(x, y) for x, y in zip(x_vals, y_filtered)]
