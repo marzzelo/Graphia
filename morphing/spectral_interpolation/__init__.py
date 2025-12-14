@@ -13,8 +13,8 @@ import scipy.fftpack
 import scipy.signal
 
 PluginName = "Spectral Interpolation"
-PluginVersion = "1.0"
-PluginDescription = "Fills gaps in signals using spectral (FFT-based) interpolation."
+PluginVersion = "1.1"
+PluginDescription = "Fills gaps in signals using spectral (FFT-based) interpolation, with configurable pre/post FFT segment sizes."
 
 # Interpolation modes for when data is missing on one side
 INTERP_MODES = [
@@ -69,7 +69,7 @@ def spectral_interpolation(Action):
     try:
         Form.Caption = "Spectral Interpolation - Fill Gap with Synthetic Data"
         Form.Width = 450
-        Form.Height = 470
+        Form.Height = 520
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
         
@@ -153,6 +153,14 @@ def spectral_interpolation(Action):
         lbl_gap_info.Top = 117
         lbl_gap_info.Font.Color = 0x808080
         labels.append(lbl_gap_info)
+
+        lbl_gap_time = vcl.TLabel(Form)
+        lbl_gap_time.Parent = Form
+        lbl_gap_time.Caption = ""
+        lbl_gap_time.Left = 280
+        lbl_gap_time.Top = 135
+        lbl_gap_time.Font.Color = 0x808080
+        labels.append(lbl_gap_time)
         
         # Separator
         sep2 = vcl.TBevel(Form)
@@ -162,19 +170,64 @@ def spectral_interpolation(Action):
         sep2.Width = 420
         sep2.Height = 2
         sep2.Shape = "bsTopLine"
+
+        # FFT segment sizes section
+        lbl_seg = vcl.TLabel(Form)
+        lbl_seg.Parent = Form
+        lbl_seg.Caption = "FFT segment sizes (points):"
+        lbl_seg.Left = 20
+        lbl_seg.Top = 178
+        lbl_seg.Font.Style = {"fsBold"}
+        labels.append(lbl_seg)
+
+        lbl_pre = vcl.TLabel(Form)
+        lbl_pre.Parent = Form
+        lbl_pre.Caption = "Pre-gap:"
+        lbl_pre.Left = 40
+        lbl_pre.Top = 205
+        labels.append(lbl_pre)
+
+        edt_pre = vcl.TEdit(Form)
+        edt_pre.Parent = Form
+        edt_pre.Left = 100
+        edt_pre.Top = 202
+        edt_pre.Width = 60
+        edt_pre.Text = ""
+
+        lbl_post = vcl.TLabel(Form)
+        lbl_post.Parent = Form
+        lbl_post.Caption = "Post-gap:"
+        lbl_post.Left = 180
+        lbl_post.Top = 205
+        labels.append(lbl_post)
+
+        edt_post = vcl.TEdit(Form)
+        edt_post.Parent = Form
+        edt_post.Left = 250
+        edt_post.Top = 202
+        edt_post.Width = 60
+        edt_post.Text = ""
+
+        lbl_seg_hint = vcl.TLabel(Form)
+        lbl_seg_hint.Parent = Form
+        lbl_seg_hint.Caption = "(default = gap size)"
+        lbl_seg_hint.Left = 325
+        lbl_seg_hint.Top = 205
+        lbl_seg_hint.Font.Color = 0x808080
+        labels.append(lbl_seg_hint)
         
         # Interpolation mode
         lbl_mode = vcl.TLabel(Form)
         lbl_mode.Parent = Form
         lbl_mode.Caption = "Interpolation mode:"
         lbl_mode.Left = 20
-        lbl_mode.Top = 180
+        lbl_mode.Top = 235
         labels.append(lbl_mode)
         
         cb_mode = vcl.TComboBox(Form)
         cb_mode.Parent = Form
         cb_mode.Left = 150
-        cb_mode.Top = 177
+        cb_mode.Top = 232
         cb_mode.Width = 200
         cb_mode.Style = "csDropDownList"
         for mode in INTERP_MODES:
@@ -186,7 +239,7 @@ def spectral_interpolation(Action):
         lbl_avail.Parent = Form
         lbl_avail.Caption = ""
         lbl_avail.Left = 20
-        lbl_avail.Top = 210
+        lbl_avail.Top = 265
         lbl_avail.Font.Color = 0x008000
         labels.append(lbl_avail)
         
@@ -195,13 +248,13 @@ def spectral_interpolation(Action):
         lbl_color.Parent = Form
         lbl_color.Caption = "Result series color:"
         lbl_color.Left = 20
-        lbl_color.Top = 245
+        lbl_color.Top = 300
         labels.append(lbl_color)
         
         cb_color = vcl.TColorBox(Form)
         cb_color.Parent = Form
         cb_color.Left = 150
-        cb_color.Top = 242
+        cb_color.Top = 297
         cb_color.Width = 120
         cb_color.Selected = 0x00AAFF  # Orange por defecto
         
@@ -209,7 +262,7 @@ def spectral_interpolation(Action):
         pnl_help = vcl.TPanel(Form)
         pnl_help.Parent = Form
         pnl_help.Left = 20
-        pnl_help.Top = 280
+        pnl_help.Top = 335
         pnl_help.Width = 400
         pnl_help.Height = 90
         pnl_help.BevelOuter = "bvLowered"
@@ -238,7 +291,7 @@ def spectral_interpolation(Action):
         btn_ok.ModalResult = 1
         btn_ok.Default = True
         btn_ok.Left = 120
-        btn_ok.Top = 380
+        btn_ok.Top = 435
         btn_ok.Width = 100
         btn_ok.Height = 30
         
@@ -248,11 +301,13 @@ def spectral_interpolation(Action):
         btn_cancel.ModalResult = 2
         btn_cancel.Cancel = True
         btn_cancel.Left = 235
-        btn_cancel.Top = 380
+        btn_cancel.Top = 435
         btn_cancel.Width = 100
         btn_cancel.Height = 30
         
         # ========== Event handlers ==========
+        last_gap_size = [-1]  # remember last auto-default (sentinel)
+
         def update_gap_info(Sender):
             """Update gap information and data availability"""
             try:
@@ -262,58 +317,104 @@ def spectral_interpolation(Action):
                 if xa >= xb:
                     lbl_gap_info.Caption = "(Xa must be < Xb)"
                     lbl_gap_info.Font.Color = 0x0000FF  # Red
+                    lbl_gap_time.Caption = ""
                     lbl_avail.Caption = ""
                     btn_ok.Enabled = False
                     return
                 
-                # Calculate gap size in points
-                gap_size = int((xb - xa) / current_period)
-                lbl_gap_info.Caption = f"(≈ {gap_size} points)"
-                lbl_gap_info.Font.Color = 0x808080
-                
-                # Check data availability before and after gap
                 # Find indices for gap boundaries
-                idx_a = np.searchsorted(x_orig, xa)
-                idx_b = np.searchsorted(x_orig, xb)
+                idx_a = int(np.searchsorted(x_orig, xa))
+                idx_b = int(np.searchsorted(x_orig, xb))
+
+                # Gap size in points (exact)
+                gap_size = max(0, idx_b - idx_a)
+                lbl_gap_info.Caption = f"({gap_size} points)"
+                lbl_gap_info.Font.Color = 0x808080
+
+                if current_period > 0 and gap_size > 0:
+                    gap_seconds = float(gap_size) * float(current_period)
+                    lbl_gap_time.Caption = f"(≈ {gap_seconds:.4g} s)"
+                else:
+                    lbl_gap_time.Caption = ""
+
+                if gap_size < 2:
+                    lbl_avail.Caption = "✗ Gap must contain at least 2 points"
+                    lbl_avail.Font.Color = 0x0000FF
+                    btn_ok.Enabled = False
+                    return
+
+                # Auto-default segment sizes to gap size (only if user hasn't changed them)
+                try:
+                    cur_pre = int(edt_pre.Text) if str(edt_pre.Text).strip() else None
+                except Exception:
+                    cur_pre = None
+                try:
+                    cur_post = int(edt_post.Text) if str(edt_post.Text).strip() else None
+                except Exception:
+                    cur_post = None
+
+                if last_gap_size[0] < 0:
+                    edt_pre.Text = str(gap_size)
+                    edt_post.Text = str(gap_size)
+                    last_gap_size[0] = gap_size
+                else:
+                    if cur_pre == last_gap_size[0]:
+                        edt_pre.Text = str(gap_size)
+                    if cur_post == last_gap_size[0]:
+                        edt_post.Text = str(gap_size)
+                    last_gap_size[0] = gap_size
+
+                # Parse required segment sizes
+                pre_len = int(edt_pre.Text)
+                post_len = int(edt_post.Text)
+
+                if pre_len < 2 or post_len < 2:
+                    lbl_avail.Caption = "✗ Segment sizes must be ≥ 2 points"
+                    lbl_avail.Font.Color = 0x0000FF
+                    btn_ok.Enabled = False
+                    return
                 
                 points_before = idx_a
                 points_after = n_points - idx_b
                 
                 # Check if we have enough data
-                has_pre = points_before >= gap_size
-                has_post = points_after >= gap_size
+                has_pre = points_before >= pre_len
+                has_post = points_after >= post_len
                 
                 if has_pre and has_post:
-                    lbl_avail.Caption = f"✓ Pre-gap: {points_before} pts  |  Post-gap: {points_after} pts"
+                    lbl_avail.Caption = f"✓ Pre-gap: {points_before} pts (need {pre_len})  |  Post-gap: {points_after} pts (need {post_len})"
                     lbl_avail.Font.Color = 0x008000  # Green
                     cb_mode.Enabled = True
                     btn_ok.Enabled = True
                 elif has_pre:
-                    lbl_avail.Caption = f"⚠ Pre-gap: {points_before} pts  |  Post-gap: {points_after} pts (insufficient)"
+                    lbl_avail.Caption = f"⚠ Pre-gap: {points_before} pts (need {pre_len})  |  Post-gap: {points_after} pts (need {post_len}, insufficient)"
                     lbl_avail.Font.Color = 0x0080FF  # Orange
                     cb_mode.ItemIndex = 1  # Pre-gap only
                     cb_mode.Enabled = True
                     btn_ok.Enabled = True
                 elif has_post:
-                    lbl_avail.Caption = f"⚠ Pre-gap: {points_before} pts (insufficient)  |  Post-gap: {points_after} pts"
+                    lbl_avail.Caption = f"⚠ Pre-gap: {points_before} pts (need {pre_len}, insufficient)  |  Post-gap: {points_after} pts (need {post_len})"
                     lbl_avail.Font.Color = 0x0080FF  # Orange
                     cb_mode.ItemIndex = 2  # Post-gap only
                     cb_mode.Enabled = True
                     btn_ok.Enabled = True
                 else:
-                    lbl_avail.Caption = f"✗ Insufficient data on both sides ({points_before} / {points_after} pts)"
+                    lbl_avail.Caption = f"✗ Insufficient data on both sides (pre {points_before}/{pre_len}, post {points_after}/{post_len})"
                     lbl_avail.Font.Color = 0x0000FF  # Red
                     btn_ok.Enabled = False
                     
             except Exception as ex:
                 lbl_gap_info.Caption = "(invalid)"
                 lbl_gap_info.Font.Color = 0x0000FF
+                lbl_gap_time.Caption = ""
                 lbl_avail.Caption = ""
                 btn_ok.Enabled = False
         
         # Assign event handlers
         edt_xa.OnChange = update_gap_info
         edt_xb.OnChange = update_gap_info
+        edt_pre.OnChange = update_gap_info
+        edt_post.OnChange = update_gap_info
         
         # Initial update
         update_gap_info(None)
@@ -325,6 +426,8 @@ def spectral_interpolation(Action):
                 xb = float(edt_xb.Text)
                 mode_idx = cb_mode.ItemIndex
                 color = int(cb_color.Selected) & 0xFFFFFF
+                pre_len = int(edt_pre.Text)
+                post_len = int(edt_post.Text)
                 
                 if xa >= xb:
                     raise ValueError("Gap start (Xa) must be less than gap end (Xb)")
@@ -337,13 +440,16 @@ def spectral_interpolation(Action):
                 gap_size = idx_b - idx_a
                 if gap_size < 2:
                     raise ValueError("Gap must contain at least 2 points")
+
+                if pre_len < 2 or post_len < 2:
+                    raise ValueError("FFT segment sizes must be ≥ 2 points")
                 
                 # Check data availability
                 points_before = idx_a
                 points_after = n_points - idx_b
                 
-                has_pre = points_before >= gap_size
-                has_post = points_after >= gap_size
+                has_pre = points_before >= pre_len
+                has_post = points_after >= post_len
                 
                 # Determine which mode to use based on data availability
                 if mode_idx == 0:  # Average (pre + post)
@@ -369,44 +475,47 @@ def spectral_interpolation(Action):
                 
                 # Get data segments for FFT
                 if mode_idx == 0 or mode_idx == 3:  # Average or Weighted
-                    # Pre-gap segment (same size as gap, just before it)
-                    pre_start = idx_a - gap_size
+                    # Pre-gap segment (user size, just before gap)
+                    pre_start = idx_a - pre_len
                     pre_end = idx_a
                     segment_pre = y_orig[pre_start:pre_end]
                     
-                    # Post-gap segment (same size as gap, just after it)
+                    # Post-gap segment (user size, just after gap)
                     post_start = idx_b
-                    post_end = idx_b + gap_size
+                    post_end = idx_b + post_len
                     segment_post = y_orig[post_start:post_end]
                     
-                    # Compute FFTs
-                    fft_pre = scipy.fftpack.fft(segment_pre)
-                    fft_post = scipy.fftpack.fft(segment_post)
+                    # Compute FFTs (DFT length equals gap size; segments are truncated/zero-padded automatically)
+                    fft_pre = scipy.fftpack.fft(segment_pre, n=gap_size)
+                    fft_post = scipy.fftpack.fft(segment_post, n=gap_size)
                     
                     if mode_idx == 0:  # Simple average
                         fft_avg = (fft_pre + fft_post) / 2
                     else:  # Weighted average (mode_idx == 3)
-                        # Weight by distance - closer segments get more weight
-                        # For now, use 50/50 (could be enhanced with user input)
-                        weight_pre = 0.5
-                        weight_post = 0.5
+                        # Weight by segment sizes (more data -> more weight)
+                        total = float(pre_len + post_len)
+                        weight_pre = float(pre_len) / total if total > 0 else 0.5
+                        weight_post = 1.0 - weight_pre
                         fft_avg = weight_pre * fft_pre + weight_post * fft_post
                     
-                    method_name = "avg(pre+post)" if mode_idx == 0 else "weighted"
+                    method_name = (
+                        f"avg(pre={pre_len},post={post_len})" if mode_idx == 0
+                        else f"weighted(pre={pre_len},post={post_len})"
+                    )
                     
                 elif mode_idx == 1:  # Pre-gap only
-                    pre_start = idx_a - gap_size
+                    pre_start = idx_a - pre_len
                     pre_end = idx_a
                     segment_pre = y_orig[pre_start:pre_end]
-                    fft_avg = scipy.fftpack.fft(segment_pre)
-                    method_name = "pre-gap"
+                    fft_avg = scipy.fftpack.fft(segment_pre, n=gap_size)
+                    method_name = f"pre-gap(pre={pre_len})"
                     
                 elif mode_idx == 2:  # Post-gap only
                     post_start = idx_b
-                    post_end = idx_b + gap_size
+                    post_end = idx_b + post_len
                     segment_post = y_orig[post_start:post_end]
-                    fft_avg = scipy.fftpack.fft(segment_post)
-                    method_name = "post-gap"
+                    fft_avg = scipy.fftpack.fft(segment_post, n=gap_size)
+                    method_name = f"post-gap(post={post_len})"
                 
                 # Apply inverse FFT and detrend
                 mixed_data = scipy.signal.detrend(np.real(scipy.fftpack.ifft(fft_avg)))

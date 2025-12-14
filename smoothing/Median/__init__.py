@@ -8,11 +8,11 @@ from common import (
 )
 
 import numpy as np
-from scipy.ndimage import median_filter
+from scipy.ndimage import median_filter, uniform_filter1d
 
 PluginName = "Selective Median Filter"
-PluginVersion = "1.2"
-PluginDescription = "Detects outliers using a local median and replaces them using the local mean excluding outliers."
+PluginVersion = "1.3"
+PluginDescription = "Detects outliers using a local median and replaces outlier segments using a line between bounding points; supports dynamic n·σ thresholding."
 
 
 def apply_median_filter(Action):
@@ -42,9 +42,17 @@ def apply_median_filter(Action):
     y_range = stats['y_range']
     n_points = stats['n_points']
     
-    # Suggested value for threshold (based on standard deviation)
-    y_std = np.std(y_vals)
-    suggested_threshold = y_std * 2
+    # Estimate sampling period from X spacing (used for window duration label)
+    dx = np.diff(np.array(x_vals, dtype=float))
+    ts_est = float(np.median(dx)) if dx.size > 0 else 0.0
+    if not np.isfinite(ts_est) or ts_est <= 0:
+        ts_est = float(np.mean(dx)) if dx.size > 0 else 0.0
+    if not np.isfinite(ts_est) or ts_est <= 0:
+        ts_est = 0.0
+
+    # Suggested value for n (sigma multiplier)
+    y_std = float(np.std(y_vals))
+    suggested_n = 2.0
     
     # Create configuration form
     Form = vcl.TForm(None)
@@ -106,21 +114,37 @@ def apply_median_filter(Action):
         lbl_kernel_hint.Top = 70
         lbl_kernel_hint.Font.Color = 0x808080
         labels.append(lbl_kernel_hint)
+
+        lbl_kernel_time = vcl.TLabel(Form)
+        lbl_kernel_time.Parent = Form
+        lbl_kernel_time.Caption = ""
+        lbl_kernel_time.Left = 330
+        lbl_kernel_time.Top = 70
+        lbl_kernel_time.Font.Color = 0x808080
+        labels.append(lbl_kernel_time)
         
-        # Deviation threshold
+        # Threshold factor n (dynamic threshold = n * local_stdDev)
         lbl_thresh = vcl.TLabel(Form)
         lbl_thresh.Parent = Form
-        lbl_thresh.Caption = "Deviation threshold:"
+        lbl_thresh.Caption = "Threshold factor (n·σ):"
         lbl_thresh.Left = 20
         lbl_thresh.Top = 105
         labels.append(lbl_thresh)
         
-        edit_thresh = vcl.TEdit(Form)
-        edit_thresh.Parent = Form
-        edit_thresh.Left = 200
-        edit_thresh.Top = 102
-        edit_thresh.Width = 100
-        edit_thresh.Text = f"{suggested_threshold:.4g}"
+        edit_n = vcl.TEdit(Form)
+        edit_n.Parent = Form
+        edit_n.Left = 200
+        edit_n.Top = 102
+        edit_n.Width = 60
+        edit_n.Text = f"{suggested_n:.3g}"
+
+        lbl_n_hint = vcl.TLabel(Form)
+        lbl_n_hint.Parent = Form
+        lbl_n_hint.Caption = "(|s - local_median| > n·local_stdDev)"
+        lbl_n_hint.Left = 270
+        lbl_n_hint.Top = 105
+        lbl_n_hint.Font.Color = 0x808080
+        labels.append(lbl_n_hint)
         
         # Help panel
         help_panel = vcl.TPanel(Form)
@@ -142,12 +166,12 @@ def apply_median_filter(Action):
         labels.append(lbl_help_title)
         
         help_text = (
-            f"1. For each point, the neighborhood median is calculated\n"
-            f"2. If |value - median| > threshold, the point is an outlier\n"
-            f"3. Outlier segments are replaced by a LINE that connects the bounding points\n"
+            f"1. Compute local median and local std dev in the selected window\n"
+            f"2. Mark outliers where |s(t) - local_median| > n·local_stdDev\n"
+            f"3. Replace consecutive outlier segments with a LINE between bounding points\n"
             f"\n"
             f"• Ideal for removing spikes while preserving the underlying trend\n"
-            f"• Suggested threshold (2σ): {suggested_threshold:.4g}"
+            f"• Suggested n: {suggested_n:.3g} (global σ={y_std:.4g})"
         )
         
         lbl_help = vcl.TLabel(Form)
@@ -178,19 +202,26 @@ def apply_median_filter(Action):
         rb_replace.Caption = "Replace original series"
         rb_replace.Left = 120
         rb_replace.Top = 310
+
+        chk_plot_threshold = vcl.TCheckBox(Form)
+        chk_plot_threshold.Parent = Form
+        chk_plot_threshold.Caption = "Plot threshold"
+        chk_plot_threshold.Left = 120
+        chk_plot_threshold.Top = 335
+        chk_plot_threshold.Checked = False
         
         # Color for new series
         lbl_color = vcl.TLabel(Form)
         lbl_color.Parent = Form
         lbl_color.Caption = "Color (new series):"
         lbl_color.Left = 20
-        lbl_color.Top = 350
+        lbl_color.Top = 365
         labels.append(lbl_color)
         
         cb_color = vcl.TColorBox(Form)
         cb_color.Parent = Form
         cb_color.Left = 150
-        cb_color.Top = 347
+        cb_color.Top = 362
         cb_color.Width = 100
         cb_color.Selected = 0xFF00FF  # Magenta por defecto
         
@@ -212,6 +243,24 @@ def apply_median_filter(Action):
         btn_cancel.Cancel = True
         btn_cancel.Left = 240
         btn_cancel.Top = 400
+
+        def update_window_time(Sender=None):
+            try:
+                k = int(edit_kernel.Text)
+                if k < 1:
+                    lbl_kernel_time.Caption = ""
+                    return
+                if ts_est > 0:
+                    # Duration in seconds for a k-point window (approx.)
+                    dur = float(k) * ts_est
+                    lbl_kernel_time.Caption = f"≈ {dur:.4g} s"
+                else:
+                    lbl_kernel_time.Caption = ""
+            except Exception:
+                lbl_kernel_time.Caption = ""
+
+        edit_kernel.OnChange = update_window_time
+        update_window_time(None)
         btn_cancel.Width = 100
         btn_cancel.Height = 30
         
@@ -219,7 +268,7 @@ def apply_median_filter(Action):
         if Form.ShowModal() == 1:
             try:
                 kernel_size = int(edit_kernel.Text)
-                threshold = float(edit_thresh.Text)
+                n_factor = float(edit_n.Text)
                 
                 if kernel_size < 3:
                     raise ValueError("Window size must be at least 3")
@@ -228,15 +277,23 @@ def apply_median_filter(Action):
                 if kernel_size % 2 == 0:
                     kernel_size += 1
                 
-                if threshold <= 0:
-                    raise ValueError("El umbral debe ser mayor que 0")
+                if n_factor <= 0:
+                    raise ValueError("n debe ser mayor que 0")
                 
-                # 1) Calcular mediana local para detectar valores atípicos (robusto)
+                # 1) Calcular mediana local (robusto) y std dev local (dinámico)
                 y_median = median_filter(y_vals, size=kernel_size, mode='nearest')
+
+                # local_stdDev via E[y^2] - (E[y])^2 in the window
+                y_mean = uniform_filter1d(y_vals, size=kernel_size, mode='nearest')
+                y_mean2 = uniform_filter1d(y_vals * y_vals, size=kernel_size, mode='nearest')
+                var = y_mean2 - (y_mean * y_mean)
+                var = np.maximum(var, 0.0)
+                local_std = np.sqrt(var)
 
                 # 2) Detectar outliers por desviación respecto a la mediana local
                 deviation = np.abs(y_vals - y_median)
-                outlier_mask = deviation > threshold
+                dynamic_thr = n_factor * local_std
+                outlier_mask = deviation > dynamic_thr
 
                 # Tratar NaN como outlier (si existieran en la serie)
                 outlier_mask = outlier_mask | np.isnan(y_vals)
@@ -310,7 +367,7 @@ def apply_median_filter(Action):
                     
                     # Copy display properties
                     original_legend = point_series.LegendText
-                    new_series.LegendText = f"{original_legend} [Median k={kernel_size}, th={threshold:.3g}]"
+                    new_series.LegendText = f"{original_legend} [Median k={kernel_size}, n={n_factor:.3g}]"
                     new_series.Size = point_series.Size
                     new_series.Style = point_series.Style
                     new_series.LineSize = point_series.LineSize
@@ -328,7 +385,44 @@ def apply_median_filter(Action):
                     point_series.Points = new_points
                     original_legend = point_series.LegendText
                     if "[Median" not in original_legend:
-                        point_series.LegendText = f"{original_legend} [Median k={kernel_size}]"
+                        point_series.LegendText = f"{original_legend} [Median k={kernel_size}, n={n_factor:.3g}]"
+
+                # Optional: plot dynamic threshold bands (local_median ± n*local_std)
+                if chk_plot_threshold.Checked:
+                    thr_upper = y_median + dynamic_thr
+                    thr_lower = y_median - dynamic_thr
+
+                    band_color = 0x888888  # gray (BGR)
+
+                    upper_series = Graph.TPointSeries()
+                    upper_series.PointType = Graph.ptCartesian
+                    upper_series.Points = [Point(x, y) for x, y in zip(x_vals, thr_upper)]
+                    upper_series.LegendText = f"{point_series.LegendText} (threshold +)"
+                    upper_series.Size = 0
+                    upper_series.Style = 0
+                    upper_series.LineSize = 1
+                    upper_series.LineStyle = 0  
+                    upper_series.ShowLabels = False
+                    col = safe_color(band_color)
+                    upper_series.FillColor = col
+                    upper_series.FrameColor = col
+                    upper_series.LineColor = col
+
+                    lower_series = Graph.TPointSeries()
+                    lower_series.PointType = Graph.ptCartesian
+                    lower_series.Points = [Point(x, y) for x, y in zip(x_vals, thr_lower)]
+                    lower_series.LegendText = f"{point_series.LegendText} (threshold -)"
+                    lower_series.Size = 0
+                    lower_series.Style = 0
+                    lower_series.LineSize = 1
+                    lower_series.LineStyle = 0  
+                    lower_series.ShowLabels = False
+                    lower_series.FillColor = col
+                    lower_series.FrameColor = col
+                    lower_series.LineColor = col
+
+                    Graph.FunctionList.append(upper_series)
+                    Graph.FunctionList.append(lower_series)
                 
                 Graph.Update()
                 

@@ -461,22 +461,37 @@ Fills a segment of the selected point series with constant values or values from
 
 ## Spectral Interpolation
 
-Fills gaps in signals using FFT-based spectral interpolation. This advanced technique reconstructs missing data by analyzing the frequency content of the surrounding signal.
+Fills gaps in signals using FFT-based spectral interpolation. This technique reconstructs missing samples by estimating the local spectrum from data surrounding the gap and synthesizing a time-domain segment that matches the gap boundaries.
 
 **Parameters:**
-*   **Gap Boundaries**: Define the X range of the gap to fill (Xa to Xb).
-*   **Analysis Window**: Number of points before and after the gap to analyze.
+*   **Gap Boundaries (Xa, Xb)**: Define the X range to replace. The dialog shows the gap length in **points** and also the equivalent **duration in seconds** ($N_\text{gap} \cdot T_s$).
+*   **FFT Segment Sizes (Pre-gap / Post-gap)**: Number of points used to compute the spectrum from the left and right sides.
+  *   **Default**: both sizes are set to the current gap size.
+  *   **Notes**: larger segments can improve spectral resolution, but may be less representative if the signal is non-stationary.
 *   **Interpolation Mode**:
     *   **Average (pre + post)**: Use frequency content from both sides.
     *   **Pre-gap only**: Use only data before the gap.
     *   **Post-gap only**: Use only data after the gap.
-    *   **Weighted average**: Weight by proximity to gap edges.
+  *   **Weighted average**: Weighted blend of spectra using the chosen pre/post segment sizes.
+*   **Result Series Color**: Output series color.
 
-**Algorithm:**
-1. Extract segments before and after the gap.
-2. Compute FFT of each segment.
-3. Combine spectral information based on selected mode.
-4. Reconstruct gap using inverse FFT with phase continuity.
+**Brief theory (why it works):**
+For a locally stationary signal, the Fourier spectrum estimated from nearby samples is a compact representation of its dominant periodic components. By computing spectra from the regions before/after the gap and combining them, the plugin builds an estimate of the missing segment's spectrum. The inverse FFT (IFFT) produces a time-domain segment consistent with that spectrum. Finally, a detrending step and a linear ramp are applied so the synthesized segment matches the gap edge values smoothly.
+
+**Algorithm (high level):**
+1. Extract pre-gap and/or post-gap segments using the selected lengths.
+2. Compute FFTs and combine them according to the selected mode.
+3. Compute IFFT to synthesize a gap-sized time-domain segment.
+4. Detrend and add a linear ramp so the segment matches the gap boundaries.
+
+**Typical use cases:**
+*   Repair short dropouts in sensor/DAQ signals (missing packets, brief clipping removed, telemetry gaps).
+*   Fill removed artifacts (impulsive spikes) when you want a frequency-consistent reconstruction.
+*   Generate plausible intermediate samples for subsequent filtering or spectral analysis.
+
+**Practical notes:**
+*   Works best for uniformly sampled signals and gaps that are short relative to changes in the signal statistics.
+*   If only one side has enough data for the chosen segment size, select **Pre-gap only** or **Post-gap only**.
 
 ![Spectral Interpolation](screenshots/demo_spectral_interpolation.png)
 
