@@ -63,7 +63,7 @@ def detect_separator(file_path, has_header):
         for i, line in enumerate(f):
             if i >= 5:  # Read max 5 lines
                 break
-            lines.append(line.strip())
+            lines.append(line.rstrip('\n\r'))
     
     if not lines:
         return ','
@@ -130,29 +130,29 @@ def detect_column_types(file_path, has_header, separator):
         tuple: (headers, column_types, n_cols)
     """
     with open(file_path, 'r', encoding='utf-8-sig') as f:
-        lines = [line.strip() for line in f if line.strip()]
-    
+        lines = [line.rstrip('\n\r') for line in f if line.strip()]
+
     if not lines:
         raise ValueError("File is empty")
-    
+
     start_idx = 0
     headers = None
-    
+
     if has_header:
         header_line = lines[0]
         headers = [h.strip().strip('"').strip("'") for h in header_line.split(separator)]
         start_idx = 1
-    
+
     if start_idx >= len(lines):
         raise ValueError("No data after header")
-    
+
     # Determine number of columns
     first_data = lines[start_idx].split(separator)
     n_cols = len(first_data)
-    
+
     if headers is None:
         headers = [str(i) for i in range(n_cols)]
-    
+
     # Analyze some rows to determine types
     sample_lines = lines[start_idx:start_idx + min(10, len(lines) - start_idx)]
     
@@ -249,23 +249,23 @@ def parse_csv(file_path, has_header, separator, x_col_index, selected_columns=No
             - y_columns: list of arrays with Y values for each column
     """
     with open(file_path, 'r', encoding='utf-8-sig') as f:
-        lines = [line.strip() for line in f if line.strip()]
-    
+        lines = [line.rstrip('\n\r') for line in f if line.strip()]
+
     if not lines:
         raise ValueError("File is empty")
-    
+
     start_idx = 0
     headers = None
-    
+
     if has_header:
         header_line = lines[0]
         headers = [h.strip().strip('"').strip("'") for h in header_line.split(separator)]
         start_idx = 1
-    
+
     # Determine number of columns
     first_data = lines[start_idx].split(separator)
     n_cols = len(first_data)
-    
+
     if headers is None:
         headers = [f"Series {i+1}" for i in range(n_cols)]
     
@@ -414,7 +414,7 @@ def import_csv(Action):
     try:
         Form.Caption = "CSV Import Configuration"
         Form.Width = 520
-        Form.Height = 620
+        Form.Height = 658
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
         
@@ -752,6 +752,25 @@ def import_csv(Action):
         lbl_help.Font.Color = 0x804000
         labels.append(lbl_help)
         
+        # Graph title
+        sep_gt = vcl.TBevel(Form)
+        sep_gt.Parent = Form
+        sep_gt.Left = 10; sep_gt.Top = 540; sep_gt.Width = 490; sep_gt.Height = 2
+        sep_gt.Shape = "bsTopLine"
+
+        lbl_graph_title = vcl.TLabel(Form)
+        lbl_graph_title.Parent = Form
+        lbl_graph_title.Caption = "Graph title:"
+        lbl_graph_title.Left = 20; lbl_graph_title.Top = 553
+        lbl_graph_title.Font.Style = {"fsBold"}
+        labels.append(lbl_graph_title)
+
+        default_title = os.path.splitext(os.path.basename(file_path))[0].replace('_', ' ')
+        edt_graph_title = vcl.TEdit(Form)
+        edt_graph_title.Parent = Form
+        edt_graph_title.Left = 110; edt_graph_title.Top = 550
+        edt_graph_title.Width = 380; edt_graph_title.Text = default_title
+
         # Buttons
         btn_ok = vcl.TButton(Form)
         btn_ok.Parent = Form
@@ -759,17 +778,17 @@ def import_csv(Action):
         btn_ok.ModalResult = 1
         btn_ok.Default = True
         btn_ok.Left = 150
-        btn_ok.Top = 545
+        btn_ok.Top = 582
         btn_ok.Width = 100
         btn_ok.Height = 30
-        
+
         btn_cancel = vcl.TButton(Form)
         btn_cancel.Parent = Form
         btn_cancel.Caption = "Cancel"
         btn_cancel.ModalResult = 2
         btn_cancel.Cancel = True
         btn_cancel.Left = 270
-        btn_cancel.Top = 545
+        btn_cancel.Top = 582
         btn_cancel.Width = 100
         btn_cancel.Height = 30
         
@@ -885,7 +904,12 @@ def import_csv(Action):
                     series_created += 1
                 
                 Graph.Update()
-                
+
+                graph_title = edt_graph_title.Text.strip()
+                if graph_title:
+                    Graph.Axes.Title = graph_title
+                    Graph.Update()
+
                 nan_method = "deleted" if nan_handling == NAN_HANDLING_DELETE_ROW else "filled with median"
                 show_info(
                     f"Import completed.\n\n"

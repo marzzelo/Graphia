@@ -11,3 +11,8 @@ try:
     from . import ProfileManager
 except ImportError:
     pass
+
+try:
+    from . import CSVEnvelope
+except ImportError:
+    pass
