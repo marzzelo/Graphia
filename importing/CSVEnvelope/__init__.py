@@ -766,6 +766,50 @@ def plot_envelope(Action):
 
         y_top += 30
 
+        # ── Shading band ──────────────────────────────────────────────────────
+        sep_shade = vcl.TBevel(Form)
+        sep_shade.Parent = Form
+        sep_shade.Left = 10; sep_shade.Top = y_top; sep_shade.Width = 500; sep_shade.Height = 2
+        sep_shade.Shape = "bsTopLine"
+        y_top += 8
+
+        chk_shading = vcl.TCheckBox(Form)
+        chk_shading.Parent = Form
+        chk_shading.Caption = "Add shading band (between max & min envelopes)"
+        chk_shading.Left = 15; chk_shading.Top = y_top
+        chk_shading.Width = 380; chk_shading.Checked = False
+        y_top += 26
+
+        lbl_shading_color = vcl.TLabel(Form)
+        lbl_shading_color.Parent = Form
+        lbl_shading_color.Caption = "Shading color:"
+        lbl_shading_color.Left = 25; lbl_shading_color.Top = y_top + 3
+
+        # Prefer a TColorBox picker; fall back to a hex TEdit if unavailable.
+        clr_shading_is_edit = [False]
+        try:
+            clr_shading = vcl.TColorBox(Form)
+            clr_shading.Parent = Form
+            clr_shading.Left = 185; clr_shading.Top = y_top
+            clr_shading.Width = 120
+            clr_shading.Style = "cbStandardColors,cbExtendedColors,cbSystemColors"
+            clr_shading.Selected = 0xC0C0C0
+        except Exception:
+            clr_shading_is_edit[0] = True
+            clr_shading = vcl.TEdit(Form)
+            clr_shading.Parent = Form
+            clr_shading.Left = 185; clr_shading.Top = y_top
+            clr_shading.Width = 80; clr_shading.Text = "C0C0C0"
+
+        lbl_shading_hint = vcl.TLabel(Form)
+        lbl_shading_hint.Parent = Form
+        lbl_shading_hint.Caption = "(solid fill, default light-gray)"
+        lbl_shading_hint.Left = 315 if not clr_shading_is_edit[0] else 275
+        lbl_shading_hint.Top = y_top + 3
+        lbl_shading_hint.Font.Color = 0x888888
+
+        y_top += 32
+
         # ── Radio button mutual exclusion ────────────────────────────────────
         def on_rb_time(Sender):
             edt_time.Enabled = True
@@ -1092,6 +1136,21 @@ def plot_envelope(Action):
         except (ValueError, TypeError):
             fs = 1.0
 
+        # Shading band
+        add_shading = chk_shading.Checked
+        if clr_shading_is_edit[0]:
+            try:
+                shading_color = int(
+                    clr_shading.Text.strip().lstrip('#').replace('0x', ''), 16
+                ) & 0xFFFFFF
+            except (ValueError, TypeError):
+                shading_color = 0xC0C0C0
+        else:
+            try:
+                shading_color = safe_color(clr_shading.Selected)
+            except (ValueError, TypeError, OverflowError):
+                shading_color = 0xC0C0C0
+
         # Quick pre-check: estimate rows per period
         if x_col_idx is not None:
             try:
@@ -1142,6 +1201,7 @@ def plot_envelope(Action):
 
         # ── Create series ────────────────────────────────────────────────────
         series_created = 0
+        shadings_created = 0
         n_cols_y = len(y_col_indices)
 
         lo_label = f"p{int(pct_lo)}" if pct_lo > 0   else "min"
@@ -1153,13 +1213,14 @@ def plot_envelope(Action):
             c_mean = safe_color(SERIES_COLORS[(2 * i + 2) % 12])
 
             curves = [
-                (col_upper[i], f"{col_name} [{hi_label} env]", c_hi),
-                (col_lower[i], f"{col_name} [{lo_label} env]", c_lo),
+                ('upper', col_upper[i], f"{col_name} [{hi_label} env]", c_hi),
+                ('lower', col_lower[i], f"{col_name} [{lo_label} env]", c_lo),
             ]
             if include_mean and col_mean is not None:
-                curves.append((col_mean[i], f"{col_name} [mean]", c_mean))
+                curves.append(('mean', col_mean[i], f"{col_name} [mean]", c_mean))
 
-            for values, legend, color in curves:
+            made = {}
+            for role, values, legend, color in curves:
                 pts = [Point(float(x), float(y))
                        for x, y in zip(x_pts, values)
                        if y is not None]
@@ -1178,6 +1239,54 @@ def plot_envelope(Action):
                 s.LineColor  = color
                 Graph.FunctionList.append(s)
                 series_created += 1
+                made[role] = s
+
+            # Optional shading band between the upper and lower envelopes.
+            # A 1-period moving-average trendline turns each point series into a
+            # function; a "between functions" shading is then drawn between them.
+            if add_shading and 'upper' in made and 'lower' in made:
+                try:
+                    ma_up = made['upper'].CreateMovingAverage(1)
+                    ma_lo = made['lower'].CreateMovingAverage(1)
+
+                    # CreateMovingAverage only *returns* the function — it must
+                    # be inserted into the graph explicitly (see Graph plugin
+                    # docs, TPointSeries.CreateModelTrendline example).
+                    Graph.FunctionList.append(ma_up)
+                    Graph.FunctionList.append(ma_lo)
+
+                    sh = Graph.TShading()
+                    sh.ShadeStyle = Graph.ssBetween
+                    sh.Func2      = ma_lo
+                    sh.Color      = shading_color
+                    # Leave Min/Max (Options From/To) and Min2/Max2 (2nd Function
+                    # From/To) unset/blank — setting explicit limits prevents the
+                    # "between functions" shading from drawing. Graph then shades
+                    # over the full overlapping domain automatically.
+                    sh.LegendText   = f"{col_name} [envelope band]"
+                    sh.ShowInLegend = False
+                    ma_up.ChildList.append(sh)
+
+                    # The shading is a CHILD of the upper trendline, so that
+                    # trendline must stay visible for the band to render
+                    # (hiding it would hide the band too). Keep both trendlines
+                    # visible but styled to overlap the existing envelope curves
+                    # exactly — color-matched hairline, no legend entry — so no
+                    # duplicate curve is perceptible.
+                    ma_up.Color = c_hi
+                    ma_lo.Color = c_lo
+                    for ma in (ma_up, ma_lo):
+                        ma.ShowInLegend = False
+                        try:
+                            ma.Size = 0      # hairline; Graph may clamp to 1px
+                        except Exception:
+                            pass
+
+                    shadings_created += 1
+                except Exception as e:
+                    show_error(
+                        f"Could not create shading band for '{col_name}':\n{str(e)}",
+                        "CSV Envelope")
 
         Graph.Update()
 
@@ -1187,10 +1296,12 @@ def plot_envelope(Action):
             Graph.Update()
 
         stats_lines = [f"  {n}: {len(x_pts)} pts" for n in y_col_names]
+        shading_line = f"Shading bands: {shadings_created}\n" if add_shading else ""
         show_info(
             f"Envelope plotted.\n\n"
             f"File: {os.path.basename(file_path)}\n"
             f"Series created: {series_created}\n"
+            f"{shading_line}"
             f"Envelope points: {len(x_pts)}\n"
             f"Period: {period:.4g} {'s' if use_time_based else ' rows'}"
             f"{'  overlap: ' + str(int(overlap_frac*100)) + '%' if overlap_frac > 0 else ''}\n"
