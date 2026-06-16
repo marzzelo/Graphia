@@ -56,30 +56,32 @@ def detect_separator(file_path, has_header):
     Automatically detects the CSV file separator.
     """
     separators = [',', ';', '\t', '|']  # Removed simple space due to datetime conflicts
-    
+
     with open(file_path, 'r', encoding='utf-8-sig') as f:
-        # Read the first lines to detect
-        lines = []
+        all_lines = []
         for i, line in enumerate(f):
-            if i >= 5:  # Read max 5 lines
+            if i >= 6:  # Read max 6 lines to have enough data after skipping header
                 break
-            lines.append(line.rstrip('\n\r'))
-    
-    if not lines:
+            all_lines.append(line.rstrip('\n\r'))
+
+    if not all_lines:
         return ','
-    
+
+    # Skip the header line for consistency checks — header column count can differ from data rows
+    lines = all_lines[1:] if has_header and len(all_lines) > 1 else all_lines
+
     # Contar ocurrencias de cada separador
     best_sep = ','
     best_count = 0
-    
+
     for sep in separators:
-        # Count consistent fields across all lines
+        # Count consistent fields across all data lines
         counts = [line.count(sep) for line in lines if line]
         if counts and min(counts) > 0 and max(counts) == min(counts):
             if counts[0] > best_count:
                 best_count = counts[0]
                 best_sep = sep
-    
+
     return best_sep
 
 
@@ -414,7 +416,7 @@ def import_csv(Action):
     try:
         Form.Caption = "CSV Import Configuration"
         Form.Width = 520
-        Form.Height = 658
+        Form.Height = 688
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
         
@@ -576,38 +578,62 @@ def import_csv(Action):
         cb_x_column.Style = "csDropDownList"
         cb_x_column.Items.Add("None (X = 0, 1, 2...)")
         cb_x_column.ItemIndex = 0
-        
+
+        # === Fs (sampling frequency) — enabled when X = row index ===
+        lbl_fs = vcl.TLabel(Form)
+        lbl_fs.Parent = Form
+        lbl_fs.Caption = "Fs [sps]:"
+        lbl_fs.Left = 130
+        lbl_fs.Top = 215
+        labels.append(lbl_fs)
+
+        edt_fs = vcl.TEdit(Form)
+        edt_fs.Parent = Form
+        edt_fs.Left = 195
+        edt_fs.Top = 212
+        edt_fs.Width = 80
+        edt_fs.Text = "1.0"
+        edt_fs.Enabled = True
+
+        lbl_fs_hint = vcl.TLabel(Form)
+        lbl_fs_hint.Parent = Form
+        lbl_fs_hint.Caption = "(samples/sec, when X = row index)"
+        lbl_fs_hint.Left = 282
+        lbl_fs_hint.Top = 215
+        lbl_fs_hint.Font.Color = 0x888888
+        labels.append(lbl_fs_hint)
+
         # === Column selection panel ===
         lbl_columns = vcl.TLabel(Form)
         lbl_columns.Parent = Form
         lbl_columns.Caption = "Columns to Import:"
         lbl_columns.Left = 20
-        lbl_columns.Top = 220
+        lbl_columns.Top = 250
         lbl_columns.Font.Style = {"fsBold"}
         labels.append(lbl_columns)
-        
+
         # Select All / Deselect All buttons
         btn_select_all = vcl.TButton(Form)
         btn_select_all.Parent = Form
         btn_select_all.Caption = "Select All"
         btn_select_all.Left = 160
-        btn_select_all.Top = 216
+        btn_select_all.Top = 246
         btn_select_all.Width = 80
         btn_select_all.Height = 22
-        
+
         btn_deselect_all = vcl.TButton(Form)
         btn_deselect_all.Parent = Form
         btn_deselect_all.Caption = "Deselect All"
         btn_deselect_all.Left = 250
-        btn_deselect_all.Top = 216
+        btn_deselect_all.Top = 246
         btn_deselect_all.Width = 80
         btn_deselect_all.Height = 22
-        
+
         # ScrollBox for column checkboxes
         scroll_box = vcl.TScrollBox(Form)
         scroll_box.Parent = Form
         scroll_box.Left = 20
-        scroll_box.Top = 245
+        scroll_box.Top = 275
         scroll_box.Width = 470
         scroll_box.Height = 200
         scroll_box.BorderStyle = "bsSingle"
@@ -718,12 +744,16 @@ def import_csv(Action):
                 detected_info[0] = None
         
         btn_refresh.OnClick = refresh_columns
-        
+
+        def on_x_col_change(_):
+            edt_fs.Enabled = (cb_x_column.ItemIndex == 0)
+        cb_x_column.OnChange = on_x_col_change
+
         # Help panel
         help_panel = vcl.TPanel(Form)
         help_panel.Parent = Form
         help_panel.Left = 20
-        help_panel.Top = 455
+        help_panel.Top = 485
         help_panel.Width = 470
         help_panel.Height = 75
         help_panel.BevelOuter = "bvLowered"
@@ -755,20 +785,20 @@ def import_csv(Action):
         # Graph title
         sep_gt = vcl.TBevel(Form)
         sep_gt.Parent = Form
-        sep_gt.Left = 10; sep_gt.Top = 540; sep_gt.Width = 490; sep_gt.Height = 2
+        sep_gt.Left = 10; sep_gt.Top = 570; sep_gt.Width = 490; sep_gt.Height = 2
         sep_gt.Shape = "bsTopLine"
 
         lbl_graph_title = vcl.TLabel(Form)
         lbl_graph_title.Parent = Form
         lbl_graph_title.Caption = "Graph title:"
-        lbl_graph_title.Left = 20; lbl_graph_title.Top = 553
+        lbl_graph_title.Left = 20; lbl_graph_title.Top = 583
         lbl_graph_title.Font.Style = {"fsBold"}
         labels.append(lbl_graph_title)
 
         default_title = os.path.splitext(os.path.basename(file_path))[0].replace('_', ' ')
         edt_graph_title = vcl.TEdit(Form)
         edt_graph_title.Parent = Form
-        edt_graph_title.Left = 110; edt_graph_title.Top = 550
+        edt_graph_title.Left = 110; edt_graph_title.Top = 580
         edt_graph_title.Width = 380; edt_graph_title.Text = default_title
 
         # Buttons
@@ -778,7 +808,7 @@ def import_csv(Action):
         btn_ok.ModalResult = 1
         btn_ok.Default = True
         btn_ok.Left = 150
-        btn_ok.Top = 582
+        btn_ok.Top = 612
         btn_ok.Width = 100
         btn_ok.Height = 30
 
@@ -788,7 +818,7 @@ def import_csv(Action):
         btn_cancel.ModalResult = 2
         btn_cancel.Cancel = True
         btn_cancel.Left = 270
-        btn_cancel.Top = 582
+        btn_cancel.Top = 612
         btn_cancel.Width = 100
         btn_cancel.Height = 30
         
@@ -863,7 +893,16 @@ def import_csv(Action):
                     start_row=start_row,
                     row_limit=row_limit
                 )
-                
+
+                # Apply sampling frequency when using row index
+                if x_col_index == -1:
+                    try:
+                        fs = float(edt_fs.Text)
+                        if fs > 0:
+                            x_values = np.asarray(x_values, dtype=float) / fs
+                    except (ValueError, TypeError):
+                        pass
+
                 if not y_columns:
                     raise ValueError("No data columns found to import")
                 

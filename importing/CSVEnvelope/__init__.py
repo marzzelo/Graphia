@@ -59,13 +59,15 @@ def _try_parse_number(value, separator):
 def _detect_separator(file_path, has_header):
     separators = [',', ';', '\t', '|']
     with open(file_path, 'r', encoding='utf-8-sig') as f:
-        lines = []
+        all_lines = []
         for i, line in enumerate(f):
-            if i >= 5:
+            if i >= 6:
                 break
-            lines.append(line.rstrip('\n\r'))
-    if not lines:
+            all_lines.append(line.rstrip('\n\r'))
+    if not all_lines:
         return ','
+    # Skip header line — it may have a different column count than data rows
+    lines = all_lines[1:] if has_header and len(all_lines) > 1 else all_lines
     best_sep, best_count = ',', 0
     for sep in separators:
         counts = [line.count(sep) for line in lines if line]
@@ -239,7 +241,8 @@ def compute_envelope(file_path, has_header, separator,
                      x_pos,
                      include_mean,
                      smooth_window,
-                     first_datetime_ref=None):
+                     first_datetime_ref=None,
+                     fs=1.0):
     """
     One-pass streaming envelope computation.
 
@@ -316,7 +319,7 @@ def compute_envelope(file_path, has_header, separator,
 
             # Determine x for this row
             if use_row_index:
-                x = float(row_count)
+                x = float(row_count) / fs
             else:
                 x = _parse_x_val(parts, x_col_idx, x_col_type, separator, ref)
                 if x is None:
@@ -514,6 +517,27 @@ def plot_envelope(Action):
 
         y_top += 32
 
+        # ── Fs (sampling frequency) ──────────────────────────────────────────
+        lbl_fs = vcl.TLabel(Form)
+        lbl_fs.Parent = Form
+        lbl_fs.Caption = "Fs [sps]:"
+        lbl_fs.Left = 15; lbl_fs.Top = y_top + 3
+        lbl_fs.Font.Style = {"fsBold"}
+
+        edt_fs = vcl.TEdit(Form)
+        edt_fs.Parent = Form
+        edt_fs.Left = 180; edt_fs.Top = y_top
+        edt_fs.Width = 100; edt_fs.Text = "1.0"
+        edt_fs.Enabled = True
+
+        lbl_fs_hint = vcl.TLabel(Form)
+        lbl_fs_hint.Parent = Form
+        lbl_fs_hint.Caption = "(samples/sec, when X = row index)"
+        lbl_fs_hint.Left = 285; lbl_fs_hint.Top = y_top + 3
+        lbl_fs_hint.Font.Color = 0x888888
+
+        y_top += 32
+
         # ── Y columns ───────────────────────────────────────────────────────
         sep2 = vcl.TBevel(Form)
         sep2.Parent = Form
@@ -604,8 +628,28 @@ def plot_envelope(Action):
         edt_sample = vcl.TEdit(Form)
         edt_sample.Parent = Form
         edt_sample.Left = 185; edt_sample.Top = y_top - 2
-        edt_sample.Width = 80; edt_sample.Text = "100"
+        edt_sample.Width = 80; edt_sample.Text = "1000"
         edt_sample.Enabled = False
+
+        y_top += 28
+
+        rb_points = vcl.TRadioButton(Form)
+        rb_points.Parent = Form
+        rb_points.Caption = "Total points-based:"
+        rb_points.Left = 25; rb_points.Top = y_top
+        rb_points.Width = 160; rb_points.Checked = False
+
+        edt_points = vcl.TEdit(Form)
+        edt_points.Parent = Form
+        edt_points.Left = 185; edt_points.Top = y_top - 2
+        edt_points.Width = 80; edt_points.Text = "1000"
+        edt_points.Enabled = False
+
+        lbl_points_hint = vcl.TLabel(Form)
+        lbl_points_hint.Parent = Form
+        lbl_points_hint.Caption = "target output points"
+        lbl_points_hint.Left = 272; lbl_points_hint.Top = y_top + 2
+        lbl_points_hint.Font.Color = 0x888888
 
         y_top += 28
 
@@ -726,13 +770,22 @@ def plot_envelope(Action):
         def on_rb_time(Sender):
             edt_time.Enabled = True
             edt_sample.Enabled = False
+            edt_points.Enabled = False
 
         def on_rb_sample(Sender):
             edt_time.Enabled = False
             edt_sample.Enabled = True
+            edt_points.Enabled = False
+
+        def on_rb_points(Sender):
+            edt_time.Enabled = False
+            edt_sample.Enabled = False
+            edt_points.Enabled = True
+            _update_defaults()
 
         rb_time.OnClick   = on_rb_time
         rb_sample.OnClick = on_rb_sample
+        rb_points.OnClick = on_rb_points
 
         # ── Help panel ───────────────────────────────────────────────────────
         sep5 = vcl.TBevel(Form)
@@ -751,9 +804,9 @@ def plot_envelope(Action):
         lbl_help = vcl.TLabel(Form)
         lbl_help.Parent = help_panel
         lbl_help.Caption = (
-            "Period default = x_range / 100  →  ~100 envelope points.\n"
+            "Period default = x_range / 1000  -->  ~ 1000 envelope points.\n"
             "Overlap > 0: smoother curves, more output points.\n"
-            "Memory usage: O(period_size × columns) only — file never fully loaded."
+            "Memory usage: O(period_size x columns) only — file never fully loaded."
         )
         lbl_help.Left = 8; lbl_help.Top = 6
         lbl_help.Font.Color = 0x804000
@@ -854,14 +907,20 @@ def plot_envelope(Action):
                 else:
                     xi, xtype = None, 'numeric'
 
+                _approx_rows = 0
                 if xi is not None:
                     try:
                         xf, xl, approx_rows, _ = _quick_scan_xrange(
                             file_path, has_header, sep, xi, xtype)
+                        _approx_rows = approx_rows
                         xrange = abs(xl - xf)
-                        default_t = xrange / 100.0 if xrange > 0 else 1.0
+                        try:
+                            n_pts = max(1, int(edt_points.Text))
+                        except (ValueError, TypeError):
+                            n_pts = 1000
+                        default_t = xrange / n_pts if xrange > 0 else 1.0
                         edt_time.Text = f"{default_t:.4g}"
-                        edt_sample.Text = str(max(1, approx_rows // 100))
+                        edt_sample.Text = str(max(1, approx_rows // n_pts))
                         n_usable = sum(1 for t in col_types if t == 'numeric')
                         lbl_status.Caption = (
                             f"{n_usable} numeric cols · "
@@ -881,14 +940,55 @@ def plot_envelope(Action):
                     'col_types': col_types,
                     'separator': sep,
                     'n_cols': n_cols,
+                    'approx_rows': _approx_rows,
                 }
+                edt_fs.Enabled = (cb_x_column.ItemIndex == 0)
 
             except Exception as e:
                 lbl_status.Caption = f"Error: {str(e)[:40]}"
                 lbl_status.Font.Color = 0x0000AA
                 detected_info[0] = None
 
+        def _update_defaults(Sender=None):
+            """Recomputes edt_time and edt_sample from edt_points + current X column."""
+            if not detected_info[0]:
+                return
+            info = detected_info[0]
+            sep = info['separator']
+            has_hdr = chk_header.Checked
+            try:
+                n_pts = max(1, int(edt_points.Text))
+            except (ValueError, TypeError):
+                n_pts = 1000
+            x_sel = cb_x_column.ItemIndex
+            xmap = x_col_map[0] or [(None, None)]
+            xi, xtype = None, 'numeric'
+            if x_sel > 0 and x_sel < len(xmap):
+                xi, xtype = xmap[x_sel]
+            edt_fs.Enabled = (xi is None)
+            if xi is not None:
+                try:
+                    xf, xl, ar, _ = _quick_scan_xrange(
+                        file_path, has_hdr, sep, xi, xtype)
+                    xrange_val = abs(xl - xf)
+                    if xrange_val > 0:
+                        edt_time.Text = f"{xrange_val / n_pts:.4g}"
+                    edt_sample.Text = str(max(1, ar // n_pts))
+                except Exception:
+                    pass
+            else:
+                ar = info.get('approx_rows', 0)
+                if ar > 0:
+                    try:
+                        fs_val = max(1e-12, float(edt_fs.Text))
+                    except (ValueError, TypeError):
+                        fs_val = 1.0
+                    edt_time.Text = f"{ar / fs_val / n_pts:.4g}"
+                    edt_sample.Text = str(max(1, ar // n_pts))
+
         btn_detect.OnClick = refresh_columns
+        cb_x_column.OnChange = _update_defaults
+        edt_points.OnChange = _update_defaults
         refresh_columns(None)   # auto-detect on open
 
         # ── Modal dialog ─────────────────────────────────────────────────────
@@ -928,16 +1028,35 @@ def plot_envelope(Action):
 
         # Period
         use_time_based = rb_time.Checked
-        try:
-            if use_time_based:
-                period = float(edt_time.Text)
+        if rb_points.Checked:
+            try:
+                n_pts_val = max(1, int(edt_points.Text))
+            except (ValueError, TypeError):
+                n_pts_val = 1000
+            if x_col_idx is not None and x_col_idx >= 0:
+                try:
+                    xf2, xl2, ar2, _ = _quick_scan_xrange(
+                        file_path, has_header, sep, x_col_idx, x_col_type)
+                    xr2 = abs(xl2 - xf2)
+                    period = xr2 / n_pts_val if xr2 > 0 else 1.0
+                except Exception:
+                    period = 1.0
+                use_time_based = True
             else:
-                period = float(edt_sample.Text)
-            if period <= 0:
-                raise ValueError
-        except ValueError:
-            show_error("Period must be a positive number.", "CSV Envelope")
-            return
+                ar2 = info.get('approx_rows', 1000) or 1000
+                period = max(1.0, ar2 / n_pts_val)
+                use_time_based = False
+        else:
+            try:
+                if use_time_based:
+                    period = float(edt_time.Text)
+                else:
+                    period = float(edt_sample.Text)
+                if period <= 0:
+                    raise ValueError
+            except ValueError:
+                show_error("Period must be a positive number.", "CSV Envelope")
+                return
 
         # Overlap
         try:
@@ -966,6 +1085,12 @@ def plot_envelope(Action):
             smooth_window = max(1, int(edt_smooth.Text))
         except ValueError:
             smooth_window = 1
+
+        # Sampling frequency (for row index mode)
+        try:
+            fs = max(1e-12, float(edt_fs.Text))
+        except (ValueError, TypeError):
+            fs = 1.0
 
         # Quick pre-check: estimate rows per period
         if x_col_idx is not None:
@@ -1005,6 +1130,7 @@ def plot_envelope(Action):
                 include_mean,
                 smooth_window,
                 first_datetime_ref=first_dt_ref,
+                fs=fs,
             )
         except Exception as e:
             show_error(f"Error computing envelope:\n{str(e)}", "CSV Envelope")
