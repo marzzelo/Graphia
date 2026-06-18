@@ -2,6 +2,7 @@
 # Streams CSV file row-by-row computing max/min/mean envelope curves per period.
 # Memory complexity: O(period_size x n_cols) regardless of file size.
 import os
+import json
 import math
 from datetime import datetime
 
@@ -13,6 +14,37 @@ PluginDescription = (
     "Plots max/min/mean envelope curves from CSV signal columns "
     "using streaming (low memory)."
 )
+
+def _read_comment_header(file_path):
+    """
+    Counts leading comment rows (lines starting with '#') and parses the first
+    comment line as JSON.  Returns (n_comment_rows, rate_hz_or_None, start_utc_or_None).
+    """
+    n_comments = 0
+    rate_hz = None
+    start_utc = None
+    try:
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            for line in f:
+                stripped = line.rstrip('\n\r')
+                if stripped.startswith('#'):
+                    if n_comments == 0:
+                        try:
+                            data = json.loads(stripped[1:].strip())
+                            if isinstance(data, dict):
+                                if 'rate_hz' in data:
+                                    rate_hz = float(data['rate_hz'])
+                                if 'start_utc' in data:
+                                    start_utc = str(data['start_utc'])
+                        except (ValueError, KeyError, TypeError):
+                            pass
+                    n_comments += 1
+                else:
+                    break
+    except Exception:
+        pass
+    return n_comments, rate_hz, start_utc
+
 
 # ─── Detection utilities (copied from CSVImporter) ───────────────────────────
 
@@ -402,6 +434,8 @@ def plot_envelope(Action):
         show_error(f"File not found:\n{file_path}", "CSV Envelope")
         return
 
+    _n_comments, _rate_hz, _start_utc = _read_comment_header(file_path)
+
     detected_info = [None]
     column_checkboxes = []   # list of (TCheckBox, col_index, col_name)
     x_col_map = [None]       # [0] = list of (col_index, col_type) matching cb_x_column items
@@ -459,6 +493,8 @@ def plot_envelope(Action):
         lbl_graph_title.Font.Style = {"fsBold"}
 
         default_title = os.path.splitext(os.path.basename(file_path))[0].replace('_', ' ')
+        if _start_utc:
+            default_title += f" [{_start_utc}]"
         edt_graph_title = vcl.TEdit(Form)
         edt_graph_title.Parent = Form
         edt_graph_title.Left = 110; edt_graph_title.Top = y_top
@@ -515,7 +551,7 @@ def plot_envelope(Action):
         edt_skip_rows = vcl.TEdit(Form)
         edt_skip_rows.Parent = Form
         edt_skip_rows.Left = 130; edt_skip_rows.Top = y_top
-        edt_skip_rows.Width = 55; edt_skip_rows.Text = "0"
+        edt_skip_rows.Width = 55; edt_skip_rows.Text = str(_n_comments)
 
         lbl_skip_hint = vcl.TLabel(Form)
         lbl_skip_hint.Parent = Form
@@ -557,7 +593,7 @@ def plot_envelope(Action):
         edt_fs = vcl.TEdit(Form)
         edt_fs.Parent = Form
         edt_fs.Left = 180; edt_fs.Top = y_top
-        edt_fs.Width = 100; edt_fs.Text = "1.0"
+        edt_fs.Width = 100; edt_fs.Text = str(_rate_hz) if _rate_hz is not None else "1.0"
         edt_fs.Enabled = True
 
         lbl_fs_hint = vcl.TLabel(Form)

@@ -1,5 +1,6 @@
 # Plugin to import CSV files and convert them to point series
 import os
+import json
 from datetime import datetime
 import re
 
@@ -56,6 +57,37 @@ DATETIME_FORMATS = [
     "%H:%M:%S.%f",           # Solo hora con microsegundos
     "%H:%M:%S",              # Solo hora
 ]
+
+
+def _read_comment_header(file_path):
+    """
+    Counts leading comment rows (lines starting with '#') and parses the first
+    comment line as JSON.  Returns (n_comment_rows, rate_hz_or_None, start_utc_or_None).
+    """
+    n_comments = 0
+    rate_hz = None
+    start_utc = None
+    try:
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            for line in f:
+                stripped = line.rstrip('\n\r')
+                if stripped.startswith('#'):
+                    if n_comments == 0:
+                        try:
+                            data = json.loads(stripped[1:].strip())
+                            if isinstance(data, dict):
+                                if 'rate_hz' in data:
+                                    rate_hz = float(data['rate_hz'])
+                                if 'start_utc' in data:
+                                    start_utc = str(data['start_utc'])
+                        except (ValueError, KeyError, TypeError):
+                            pass
+                    n_comments += 1
+                else:
+                    break
+    except Exception:
+        pass
+    return n_comments, rate_hz, start_utc
 
 
 def detect_separator(file_path, has_header, skip_rows=0):
@@ -580,6 +612,7 @@ def import_csv(Action):
 
     # Use first file for column detection / UI
     file_path = file_paths[0]
+    _n_comments, _rate_hz, _start_utc = _read_comment_header(file_path)
 
     # Variables to store detected information (use list to allow modification in closure)
     detected_info = [None]  # [0] = {'headers': ..., 'column_types': ..., 'separator': ..., 'n_cols': ...}
@@ -690,7 +723,7 @@ def import_csv(Action):
         edt_skip_rows.Left = 150
         edt_skip_rows.Top = 112
         edt_skip_rows.Width = 55
-        edt_skip_rows.Text = "0"
+        edt_skip_rows.Text = str(_n_comments)
 
         lbl_skip_hint = vcl.TLabel(Form)
         lbl_skip_hint.Parent = Form
@@ -854,7 +887,7 @@ def import_csv(Action):
         edt_fs.Left = 195
         edt_fs.Top = 304
         edt_fs.Width = 80
-        edt_fs.Text = "1.0"
+        edt_fs.Text = str(_rate_hz) if _rate_hz is not None else "1.0"
         edt_fs.Enabled = True
 
         lbl_fs_hint = vcl.TLabel(Form)
@@ -1064,6 +1097,8 @@ def import_csv(Action):
         labels.append(lbl_graph_title)
 
         default_title = os.path.splitext(os.path.basename(file_path))[0].replace('_', ' ')
+        if _start_utc:
+            default_title += f" [{_start_utc}]"
         edt_graph_title = vcl.TEdit(Form)
         edt_graph_title.Parent = Form
         edt_graph_title.Left = 110; edt_graph_title.Top = 672

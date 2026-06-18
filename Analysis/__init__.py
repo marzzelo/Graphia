@@ -26,3 +26,8 @@ try:
     from . import ifft
 except ImportError:
     pass
+
+try:
+    from . import CycleCounter
+except ImportError:
+    pass
