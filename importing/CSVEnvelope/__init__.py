@@ -56,14 +56,17 @@ def _try_parse_number(value, separator):
     return None
 
 
-def _detect_separator(file_path, has_header):
+def _detect_separator(file_path, has_header, skip_rows=0):
     separators = [',', ';', '\t', '|']
     with open(file_path, 'r', encoding='utf-8-sig') as f:
         all_lines = []
         for i, line in enumerate(f):
-            if i >= 6:
+            if i >= 6 + skip_rows:
                 break
             all_lines.append(line.rstrip('\n\r'))
+    if not all_lines:
+        return ','
+    all_lines = all_lines[skip_rows:]
     if not all_lines:
         return ','
     # Skip header line — it may have a different column count than data rows
@@ -78,11 +81,14 @@ def _detect_separator(file_path, has_header):
     return best_sep
 
 
-def _detect_column_types(file_path, has_header, separator):
+def _detect_column_types(file_path, has_header, separator, skip_rows=0):
     with open(file_path, 'r', encoding='utf-8-sig') as f:
         lines = [line.rstrip('\n\r') for line in f if line.strip()]
     if not lines:
         raise ValueError("File is empty")
+    lines = lines[skip_rows:]
+    if not lines:
+        raise ValueError("No data after skipped rows")
     start_idx = 0
     headers = None
     if has_header:
@@ -126,7 +132,7 @@ def _detect_column_types(file_path, has_header, separator):
 
 # ─── X-range quick scan ───────────────────────────────────────────────────────
 
-def _quick_scan_xrange(file_path, has_header, separator, x_col_idx, x_col_type):
+def _quick_scan_xrange(file_path, has_header, separator, x_col_idx, x_col_type, skip_rows=0):
     """
     Reads first data row + last ~4 KB to estimate x_first, x_last, approx_rows.
     Returns (x_first_secs, x_last_secs, approx_total_rows, first_datetime_ref).
@@ -134,6 +140,8 @@ def _quick_scan_xrange(file_path, has_header, separator, x_col_idx, x_col_type):
     first_datetime_ref = None
 
     with open(file_path, 'r', encoding='utf-8-sig') as f:
+        for _ in range(skip_rows):
+            f.readline()
         if has_header:
             f.readline()
         pos_before = f.tell()
@@ -242,7 +250,8 @@ def compute_envelope(file_path, has_header, separator,
                      include_mean,
                      smooth_window,
                      first_datetime_ref=None,
-                     fs=1.0):
+                     fs=1.0,
+                     skip_rows=0):
     """
     One-pass streaming envelope computation.
 
@@ -308,6 +317,8 @@ def compute_envelope(file_path, has_header, separator,
                     col_mean[i].append(None)
 
     with open(file_path, 'r', encoding='utf-8-sig') as f:
+        for _ in range(skip_rows):
+            f.readline()
         if has_header:
             f.readline()
 
@@ -494,6 +505,25 @@ def plot_envelope(Action):
         lbl_status.Font.Color = 0x008800
 
         y_top += 48
+
+        # ── Skip rows ────────────────────────────────────────────────────────
+        lbl_skip = vcl.TLabel(Form)
+        lbl_skip.Parent = Form
+        lbl_skip.Caption = "Skip initial rows:"
+        lbl_skip.Left = 15; lbl_skip.Top = y_top + 3
+
+        edt_skip_rows = vcl.TEdit(Form)
+        edt_skip_rows.Parent = Form
+        edt_skip_rows.Left = 130; edt_skip_rows.Top = y_top
+        edt_skip_rows.Width = 55; edt_skip_rows.Text = "0"
+
+        lbl_skip_hint = vcl.TLabel(Form)
+        lbl_skip_hint.Parent = Form
+        lbl_skip_hint.Caption = "(rows to skip before header/data)"
+        lbl_skip_hint.Left = 192; lbl_skip_hint.Top = y_top + 3
+        lbl_skip_hint.Font.Color = 0x888888
+
+        y_top += 30
 
         # ── X column ────────────────────────────────────────────────────────
         sep1 = vcl.TBevel(Form)
@@ -888,9 +918,13 @@ def plot_envelope(Action):
 
             try:
                 has_header = chk_header.Checked
+                try:
+                    skip_rows_val = max(0, int(edt_skip_rows.Text))
+                except (ValueError, TypeError):
+                    skip_rows_val = 0
                 sep_idx = cb_separator.ItemIndex
                 if sep_idx == 0:
-                    sep = _detect_separator(file_path, has_header)
+                    sep = _detect_separator(file_path, has_header, skip_rows_val)
                 elif sep_idx == 1:
                     sep = ','
                 elif sep_idx == 2:
@@ -901,7 +935,7 @@ def plot_envelope(Action):
                     sep = '|'
 
                 headers, col_types, n_cols = _detect_column_types(
-                    file_path, has_header, sep)
+                    file_path, has_header, sep, skip_rows_val)
 
                 # Clear old checkboxes
                 for chk, _, __ in column_checkboxes:
@@ -955,7 +989,7 @@ def plot_envelope(Action):
                 if xi is not None:
                     try:
                         xf, xl, approx_rows, _ = _quick_scan_xrange(
-                            file_path, has_header, sep, xi, xtype)
+                            file_path, has_header, sep, xi, xtype, skip_rows_val)
                         _approx_rows = approx_rows
                         xrange = abs(xl - xf)
                         try:
@@ -985,6 +1019,7 @@ def plot_envelope(Action):
                     'separator': sep,
                     'n_cols': n_cols,
                     'approx_rows': _approx_rows,
+                    'skip_rows': skip_rows_val,
                 }
                 edt_fs.Enabled = (cb_x_column.ItemIndex == 0)
 
@@ -1000,6 +1035,7 @@ def plot_envelope(Action):
             info = detected_info[0]
             sep = info['separator']
             has_hdr = chk_header.Checked
+            skip_rows_v = info.get('skip_rows', 0)
             try:
                 n_pts = max(1, int(edt_points.Text))
             except (ValueError, TypeError):
@@ -1013,7 +1049,7 @@ def plot_envelope(Action):
             if xi is not None:
                 try:
                     xf, xl, ar, _ = _quick_scan_xrange(
-                        file_path, has_hdr, sep, xi, xtype)
+                        file_path, has_hdr, sep, xi, xtype, skip_rows_v)
                     xrange_val = abs(xl - xf)
                     if xrange_val > 0:
                         edt_time.Text = f"{xrange_val / n_pts:.4g}"
@@ -1049,6 +1085,7 @@ def plot_envelope(Action):
         col_types  = info['col_types']
         headers    = info['headers']
         has_header = chk_header.Checked
+        skip_rows  = info.get('skip_rows', 0)
 
         # X column
         x_sel = cb_x_column.ItemIndex
@@ -1080,7 +1117,7 @@ def plot_envelope(Action):
             if x_col_idx is not None and x_col_idx >= 0:
                 try:
                     xf2, xl2, ar2, _ = _quick_scan_xrange(
-                        file_path, has_header, sep, x_col_idx, x_col_type)
+                        file_path, has_header, sep, x_col_idx, x_col_type, skip_rows)
                     xr2 = abs(xl2 - xf2)
                     period = xr2 / n_pts_val if xr2 > 0 else 1.0
                 except Exception:
@@ -1155,7 +1192,7 @@ def plot_envelope(Action):
         if x_col_idx is not None:
             try:
                 xf, xl, approx_rows, first_dt_ref = _quick_scan_xrange(
-                    file_path, has_header, sep, x_col_idx, x_col_type)
+                    file_path, has_header, sep, x_col_idx, x_col_type, skip_rows)
                 xrange = abs(xl - xf)
                 if use_time_based and xrange > 0:
                     est_rpp = approx_rows * period / xrange
@@ -1190,6 +1227,7 @@ def plot_envelope(Action):
                 smooth_window,
                 first_datetime_ref=first_dt_ref,
                 fs=fs,
+                skip_rows=skip_rows,
             )
         except Exception as e:
             show_error(f"Error computing envelope:\n{str(e)}", "CSV Envelope")
