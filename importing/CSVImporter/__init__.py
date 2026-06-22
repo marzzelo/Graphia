@@ -1,18 +1,18 @@
 # Plugin to import CSV files and convert them to point series
 import os
-import json
-from datetime import datetime
-import re
 
-# Import common module (automatically configures venv)
 from common import (
     show_error, show_info, safe_color, Point, Graph, vcl
+)
+from importing.csv_utils import (
+    read_comment_header, try_parse_datetime, try_parse_number,
+    detect_separator, detect_column_types, count_data_rows,
 )
 
 import numpy as np
 
 PluginName = "Import CSV"
-PluginVersion = "1.3"
+PluginVersion = "1.4"
 PluginDescription = "Imports CSV files and converts each column to a point series."
 
 # NaN handling options
@@ -42,236 +42,19 @@ SERIES_COLORS = [
     0x008888,  # Oliva
 ]
 
-# Formatos de datetime comunes
-DATETIME_FORMATS = [
-    "%Y-%m-%d %H:%M:%S.%f",  # 2025-11-03 06:38:54.203
-    "%Y-%m-%d %H:%M:%S",     # 2025-11-03 06:38:54
-    "%Y/%m/%d %H:%M:%S.%f",  # 2025/11/03 06:38:54.203
-    "%Y/%m/%d %H:%M:%S",     # 2025/11/03 06:38:54
-    "%d-%m-%Y %H:%M:%S.%f",  # 03-11-2025 06:38:54.203
-    "%d-%m-%Y %H:%M:%S",     # 03-11-2025 06:38:54
-    "%d/%m/%Y %H:%M:%S.%f",  # 03/11/2025 06:38:54.203
-    "%d/%m/%Y %H:%M:%S",     # 03/11/2025 06:38:54
-    "%Y-%m-%dT%H:%M:%S.%f",  # ISO format with microseconds
-    "%Y-%m-%dT%H:%M:%S",     # ISO format
-    "%H:%M:%S.%f",           # Solo hora con microsegundos
-    "%H:%M:%S",              # Solo hora
-]
-
-
-def _read_comment_header(file_path):
-    """
-    Counts leading comment rows (lines starting with '#') and parses the first
-    comment line as JSON.  Returns (n_comment_rows, rate_hz_or_None, start_utc_or_None).
-    """
-    n_comments = 0
-    rate_hz = None
-    start_utc = None
-    try:
-        with open(file_path, 'r', encoding='utf-8-sig') as f:
-            for line in f:
-                stripped = line.rstrip('\n\r')
-                if stripped.startswith('#'):
-                    if n_comments == 0:
-                        try:
-                            data = json.loads(stripped[1:].strip())
-                            if isinstance(data, dict):
-                                if 'rate_hz' in data:
-                                    rate_hz = float(data['rate_hz'])
-                                if 'start_utc' in data:
-                                    start_utc = str(data['start_utc'])
-                        except (ValueError, KeyError, TypeError):
-                            pass
-                    n_comments += 1
-                else:
-                    break
-    except Exception:
-        pass
-    return n_comments, rate_hz, start_utc
-
-
-def detect_separator(file_path, has_header, skip_rows=0):
-    """
-    Automatically detects the CSV file separator.
-    """
-    separators = [',', ';', '\t', '|']  # Removed simple space due to datetime conflicts
-
-    with open(file_path, 'r', encoding='utf-8-sig') as f:
-        all_lines = []
-        for i, line in enumerate(f):
-            if i >= 6 + skip_rows:  # Read max 6 lines to have enough data after skipping header
-                break
-            all_lines.append(line.rstrip('\n\r'))
-
-    if not all_lines:
-        return ','
-
-    all_lines = all_lines[skip_rows:]
-    if not all_lines:
-        return ','
-
-    # Skip the header line for consistency checks — header column count can differ from data rows
-    lines = all_lines[1:] if has_header and len(all_lines) > 1 else all_lines
-
-    # Contar ocurrencias de cada separador
-    best_sep = ','
-    best_count = 0
-
-    for sep in separators:
-        # Count consistent fields across all data lines
-        counts = [line.count(sep) for line in lines if line]
-        if counts and min(counts) > 0 and max(counts) == min(counts):
-            if counts[0] > best_count:
-                best_count = counts[0]
-                best_sep = sep
-
-    return best_sep
-
-
-def try_parse_datetime(value):
-    """
-    Attempts to parse a value as datetime.
-    Returns the datetime object if successful, None if not.
-    """
-    value = value.strip().strip('"').strip("'")
-
-    for fmt in DATETIME_FORMATS:
-        try:
-            return datetime.strptime(value, fmt)
-        except ValueError:
-            continue
-
-    return None
-
-
-def try_parse_number(value, separator):
-    """
-    Attempts to parse a value as a number.
-    Returns the float if successful, None if not.
-    """
-    value = value.strip().strip('"').strip("'")
-
-    try:
-        return float(value)
-    except ValueError:
-        pass
-
-    # Intentar con reemplazo de coma decimal si el separador no es coma
-    if separator != ',':
-        try:
-            return float(value.replace(',', '.'))
-        except ValueError:
-            pass
-
-    return None
-
-
-def detect_column_types(file_path, has_header, separator, skip_rows=0):
-    """
-    Detects the type of each column: 'numeric', 'datetime', or 'ignore'.
-    Also returns headers and the number of columns.
-
-    Returns:
-        tuple: (headers, column_types, n_cols)
-    """
-    with open(file_path, 'r', encoding='utf-8-sig') as f:
-        lines = [line.rstrip('\n\r') for line in f if line.strip()]
-
-    if not lines:
-        raise ValueError("File is empty")
-
-    lines = lines[skip_rows:]
-    if not lines:
-        raise ValueError("No data after skipped rows")
-
-    start_idx = 0
-    headers = None
-
-    if has_header:
-        header_line = lines[0]
-        headers = [h.strip().strip('"').strip("'") for h in header_line.split(separator)]
-        start_idx = 1
-
-    if start_idx >= len(lines):
-        raise ValueError("No data after header")
-
-    # Determine number of columns
-    first_data = lines[start_idx].split(separator)
-    n_cols = len(first_data)
-
-    if headers is None:
-        headers = [str(i) for i in range(n_cols)]
-
-    # Analyze some rows to determine types
-    sample_lines = lines[start_idx:start_idx + min(10, len(lines) - start_idx)]
-
-    column_types = []
-    for col_idx in range(n_cols):
-        numeric_count = 0
-        datetime_count = 0
-        empty_count = 0
-
-        for line in sample_lines:
-            parts = line.split(separator)
-            if col_idx >= len(parts):
-                continue
-
-            value = parts[col_idx].strip().strip('"').strip("'")
-
-            # Skip empty values - they don't determine the type
-            if not value:
-                empty_count += 1
-                continue
-
-            if try_parse_number(value, separator) is not None:
-                numeric_count += 1
-            elif try_parse_datetime(value) is not None:
-                datetime_count += 1
-
-        # Calculate based on non-empty values only
-        non_empty_total = len(sample_lines) - empty_count
-        if non_empty_total > 0:
-            if numeric_count >= non_empty_total * 0.8:
-                column_types.append('numeric')
-            elif datetime_count >= non_empty_total * 0.8:
-                column_types.append('datetime')
-            else:
-                column_types.append('ignore')
-        else:
-            # All values are empty - treat as ignore
-            column_types.append('ignore')
-
-    return headers, column_types, n_cols
-
 
 def fill_nan_with_neighbor_median(arr, window=3):
-    """
-    Fills NaN values with the median of neighboring values.
-
-    Args:
-        arr: numpy array with potential NaN values
-        window: number of neighbors on each side to consider
-
-    Returns:
-        numpy array with NaN values filled
-    """
+    """Fills NaN values with the median of neighboring values."""
     result = arr.copy()
     nan_indices = np.where(np.isnan(result))[0]
 
     for idx in nan_indices:
-        # Get neighbors within window
         start = max(0, idx - window)
         end = min(len(result), idx + window + 1)
         neighbors = result[start:end]
-
-        # Filter out NaN from neighbors
         valid_neighbors = neighbors[~np.isnan(neighbors)]
-
         if len(valid_neighbors) > 0:
             result[idx] = np.median(valid_neighbors)
-        else:
-            # If no valid neighbors, leave as NaN (will be handled later)
-            pass
 
     return result
 
@@ -327,13 +110,12 @@ def parse_csv_decimated(file_path, has_header, separator, x_col_index,
              if (0 <= x_col_index < n_cols and column_types[x_col_index] != 'ignore')
              else -1)
 
-    # Union of selected columns + x column
     cols_to_process = sorted(set(columns_to_use) | ({eff_x} if eff_x >= 0 else set()))
 
     dt_refs = {}
     col_bufs = {c: [] for c in cols_to_process}
     col_out = {c: [] for c in cols_to_process}
-    x_idx_out = []  # row indices used when x is positional
+    x_idx_out = []
 
     rows_in_window = 0
     rows_processed = 0
@@ -389,7 +171,6 @@ def parse_csv_decimated(file_path, has_header, separator, x_col_index,
                 group_start_row = rows_processed
                 rows_in_window = 0
 
-        # Flush remaining partial group
         if rows_in_window > 0:
             if eff_x < 0:
                 x_idx_out.append(float(group_start_row))
@@ -423,25 +204,7 @@ def parse_csv_decimated(file_path, has_header, separator, x_col_index,
 def parse_csv(file_path, has_header, separator, x_col_index, selected_columns=None,
               nan_handling=NAN_HANDLING_DELETE_ROW, start_row=0, row_limit=None,
               skip_rows=0):
-    """
-    Parses the CSV file and returns the data.
-
-    Args:
-        file_path: Path to file
-        has_header: If it has header
-        separator: Field separator
-        x_col_index: X column index (-1 for none, use 0,1,2...)
-        selected_columns: List of column indices to import (None = all)
-        nan_handling: How to handle NaN values (NAN_HANDLING_DELETE_ROW or NAN_HANDLING_FILL_MEDIAN)
-        start_row: First data row to import (0-based, after header if present)
-        row_limit: Maximum number of rows to import (None = all)
-
-    Returns:
-        tuple: (series_names, x_values, y_columns)
-            - series_names: list of series names
-            - x_values: array of X values
-            - y_columns: list of arrays with Y values for each column
-    """
+    """Parses the CSV file and returns (series_names, x_values, y_columns, n_rows)."""
     with open(file_path, 'r', encoding='utf-8-sig') as f:
         lines = [line.rstrip('\n\r') for line in f if line.strip()]
 
@@ -460,36 +223,28 @@ def parse_csv(file_path, has_header, separator, x_col_index, selected_columns=No
         headers = [h.strip().strip('"').strip("'") for h in header_line.split(separator)]
         start_idx = 1
 
-    # Determine number of columns
     first_data = lines[start_idx].split(separator)
     n_cols = len(first_data)
 
     if headers is None:
         headers = [f"Series {i+1}" for i in range(n_cols)]
 
-    # Detect column types
     _, column_types, _ = detect_column_types(file_path, has_header, separator, skip_rows)
 
-    # Apply start_row and row_limit to data lines
     data_lines = lines[start_idx:]
     if start_row > 0:
         data_lines = data_lines[start_row:]
     if row_limit is not None and row_limit > 0:
         data_lines = data_lines[:row_limit]
 
-    # Parse data row by row
     n_rows = len(data_lines)
-
-    # Inicializar almacenamiento por columna
     column_data = [[] for _ in range(n_cols)]
 
     for line in data_lines:
         parts = line.split(separator)
-
         for col_idx in range(min(len(parts), n_cols)):
             value = parts[col_idx]
             col_type = column_types[col_idx]
-
             if col_type == 'numeric':
                 parsed = try_parse_number(value, separator)
                 column_data[col_idx].append(parsed if parsed is not None else np.nan)
@@ -499,75 +254,50 @@ def parse_csv(file_path, has_header, separator, x_col_index, selected_columns=No
             else:
                 column_data[col_idx].append(None)
 
-    # Convertir columnas datetime a segundos relativos
     for col_idx in range(n_cols):
         if column_types[col_idx] == 'datetime':
             dt_values = column_data[col_idx]
-            # Find the first valid value as reference
-            ref_time = None
-            for v in dt_values:
-                if v is not None:
-                    ref_time = v
-                    break
-
+            ref_time = next((v for v in dt_values if v is not None), None)
             if ref_time is not None:
-                # Convertir a segundos desde el inicio
-                seconds = []
-                for v in dt_values:
-                    if v is not None:
-                        delta = (v - ref_time).total_seconds()
-                        seconds.append(delta)
-                    else:
-                        seconds.append(np.nan)
-                column_data[col_idx] = seconds
+                column_data[col_idx] = [
+                    (v - ref_time).total_seconds() if v is not None else np.nan
+                    for v in dt_values
+                ]
             else:
                 column_types[col_idx] = 'ignore'
 
-    # Convertir a arrays numpy
     for col_idx in range(n_cols):
         if column_types[col_idx] != 'ignore':
             column_data[col_idx] = np.array(column_data[col_idx], dtype=float)
 
-    # Handle NaN values based on nan_handling option
     if nan_handling == NAN_HANDLING_FILL_MEDIAN:
-        # Fill NaN with median of neighbors for each column
         for col_idx in range(n_cols):
             if column_types[col_idx] != 'ignore':
                 column_data[col_idx] = fill_nan_with_neighbor_median(column_data[col_idx])
 
-    # Determinar valores X
     if x_col_index >= 0 and x_col_index < n_cols and column_types[x_col_index] != 'ignore':
         x_values = column_data[x_col_index]
     else:
         x_values = np.arange(n_rows, dtype=float)
-        x_col_index = -1  # Marcar que no hay columna X
+        x_col_index = -1
 
-    # Determine which columns to use based on selected_columns
     if selected_columns is None:
-        # Use all non-ignored columns except X
         columns_to_use = [i for i in range(n_cols) if column_types[i] != 'ignore']
     else:
         columns_to_use = [i for i in selected_columns if i < n_cols and column_types[i] != 'ignore']
 
-    # Recopilar columnas Y (excluyendo X y las ignoradas)
     y_columns = []
     series_names = []
-
     for col_idx in columns_to_use:
         if col_idx == x_col_index:
-            continue  # Saltar columna X
-
+            continue
         y_columns.append(column_data[col_idx])
         series_names.append(headers[col_idx])
 
-    # Handle NaN by deleting rows if that option is selected
     if nan_handling == NAN_HANDLING_DELETE_ROW and y_columns:
-        # Find rows where any value is NaN
         valid_mask = ~np.isnan(x_values)
         for y_col in y_columns:
             valid_mask &= ~np.isnan(y_col)
-
-        # Apply mask
         x_values = x_values[valid_mask]
         y_columns = [y_col[valid_mask] for y_col in y_columns]
         n_rows = len(x_values)
@@ -575,19 +305,9 @@ def parse_csv(file_path, has_header, separator, x_col_index, selected_columns=No
     return series_names, x_values, y_columns, n_rows
 
 
-def count_data_rows(file_path, has_header, skip_rows=0):
-    """Count the total number of data rows in the file."""
-    with open(file_path, 'r', encoding='utf-8-sig') as f:
-        lines = [line.strip() for line in f if line.strip()]
-
-    start_idx = skip_rows + (1 if has_header else 0)
-    return max(0, len(lines) - start_idx)
-
-
 def import_csv(Action):
     """Imports one or more CSV files and creates point series."""
 
-    # Create file selection dialog (multi-select)
     open_dialog = vcl.TOpenDialog(None)
     open_dialog.Title = "Select CSV file(s)"
     open_dialog.Filter = "Archivos CSV (*.csv)|*.csv|Archivos de texto (*.txt)|*.txt|Todos los archivos (*.*)|*.*"
@@ -597,7 +317,6 @@ def import_csv(Action):
     if not open_dialog.Execute():
         return
 
-    # Collect file list (multi-select or single)
     try:
         file_paths = [open_dialog.Files[i] for i in range(open_dialog.Files.Count)]
         if not file_paths:
@@ -610,26 +329,22 @@ def import_csv(Action):
         show_error("No valid files selected.", "Import CSV")
         return
 
-    # Use first file for column detection / UI
     file_path = file_paths[0]
-    _n_comments, _rate_hz, _start_utc = _read_comment_header(file_path)
+    _n_comments, _rate_hz, _start_utc = read_comment_header(file_path)
 
-    # Variables to store detected information (use list to allow modification in closure)
-    detected_info = [None]  # [0] = {'headers': ..., 'column_types': ..., 'separator': ..., 'n_cols': ...}
-    column_checkboxes = []  # List of (checkbox, column_index) tuples
+    detected_info = [None]
+    column_checkboxes = []
 
-    # Create configuration form
     Form = vcl.TForm(None)
     try:
         Form.Caption = "CSV Import Configuration"
         Form.Width = 520
-        Form.Height = 780
+        Form.Height = 815
         Form.Position = "poScreenCenter"
         Form.BorderStyle = "bsDialog"
 
         labels = []
 
-        # Show selected file(s)
         lbl_file = vcl.TLabel(Form)
         lbl_file.Parent = Form
         lbl_file.Caption = "File(s):"
@@ -652,7 +367,6 @@ def import_csv(Action):
         lbl_filename.Font.Color = 0x666666
         labels.append(lbl_filename)
 
-        # Separador visual
         sep1 = vcl.TBevel(Form)
         sep1.Parent = Form
         sep1.Left = 10
@@ -661,7 +375,6 @@ def import_csv(Action):
         sep1.Height = 2
         sep1.Shape = "bsTopLine"
 
-        # Option: has header
         chk_header = vcl.TCheckBox(Form)
         chk_header.Parent = Form
         chk_header.Caption = "File has header (first row with names)"
@@ -670,7 +383,6 @@ def import_csv(Action):
         chk_header.Width = 350
         chk_header.Checked = True
 
-        # Field separator
         lbl_sep = vcl.TLabel(Form)
         lbl_sep.Parent = Form
         lbl_sep.Caption = "Field separator:"
@@ -691,7 +403,6 @@ def import_csv(Action):
         cb_separator.Items.Add("| (pipe)")
         cb_separator.ItemIndex = 0
 
-        # Button to update columns after changing options
         btn_refresh = vcl.TButton(Form)
         btn_refresh.Parent = Form
         btn_refresh.Caption = "Detect columns"
@@ -700,7 +411,6 @@ def import_csv(Action):
         btn_refresh.Width = 120
         btn_refresh.Height = 25
 
-        # Status label
         lbl_status = vcl.TLabel(Form)
         lbl_status.Parent = Form
         lbl_status.Caption = ""
@@ -709,7 +419,6 @@ def import_csv(Action):
         lbl_status.Font.Color = 0x008800
         labels.append(lbl_status)
 
-        # === Skip initial rows ===
         lbl_skip = vcl.TLabel(Form)
         lbl_skip.Parent = Form
         lbl_skip.Caption = "Skip initial rows:"
@@ -733,7 +442,6 @@ def import_csv(Action):
         lbl_skip_hint.Font.Color = 0x888888
         labels.append(lbl_skip_hint)
 
-        # === Row range options ===
         lbl_row_range = vcl.TLabel(Form)
         lbl_row_range.Parent = Form
         lbl_row_range.Caption = "Row Range:"
@@ -778,7 +486,6 @@ def import_csv(Action):
         lbl_row_hint.Font.Color = 0x888888
         labels.append(lbl_row_hint)
 
-        # === Decimation options ===
         lbl_decimate = vcl.TLabel(Form)
         lbl_decimate.Parent = Form
         lbl_decimate.Caption = "Decimation:"
@@ -837,7 +544,6 @@ def import_csv(Action):
             cb_decimate_method.Enabled = enabled
         chk_decimate.OnClick = on_decimate_toggle
 
-        # === NaN handling options ===
         lbl_nan = vcl.TLabel(Form)
         lbl_nan.Parent = Form
         lbl_nan.Caption = "NaN Handling:"
@@ -856,7 +562,6 @@ def import_csv(Action):
         cb_nan_handling.Items.Add("Fill with median of neighbors")
         cb_nan_handling.ItemIndex = 0
 
-        # === X Column selector ===
         lbl_x_col = vcl.TLabel(Form)
         lbl_x_col.Parent = Form
         lbl_x_col.Caption = "X Column:"
@@ -874,7 +579,6 @@ def import_csv(Action):
         cb_x_column.Items.Add("None (X = 0, 1, 2...)")
         cb_x_column.ItemIndex = 0
 
-        # === Fs (sampling frequency) — enabled when X = row index ===
         lbl_fs = vcl.TLabel(Form)
         lbl_fs.Parent = Form
         lbl_fs.Caption = "Fs [sps]:"
@@ -898,21 +602,49 @@ def import_csv(Action):
         lbl_fs_hint.Font.Color = 0x888888
         labels.append(lbl_fs_hint)
 
-        # === Column selection panel ===
+        _multi = len(file_paths) > 1
+
+        chk_stack = vcl.TCheckBox(Form)
+        chk_stack.Parent = Form
+        chk_stack.Caption = "Stack datasets on X axis"
+        chk_stack.Left = 130
+        chk_stack.Top = 333
+        chk_stack.Width = 185
+        chk_stack.Checked = _multi
+        chk_stack.Enabled = _multi
+
+        lbl_sort = vcl.TLabel(Form)
+        lbl_sort.Parent = Form
+        lbl_sort.Caption = "Sort by:"
+        lbl_sort.Left = 322
+        lbl_sort.Top = 336
+        lbl_sort.Enabled = _multi
+        labels.append(lbl_sort)
+
+        cb_sort_order = vcl.TComboBox(Form)
+        cb_sort_order.Parent = Form
+        cb_sort_order.Left = 375
+        cb_sort_order.Top = 333
+        cb_sort_order.Width = 115
+        cb_sort_order.Style = "csDropDownList"
+        cb_sort_order.Items.Add("Name")
+        cb_sort_order.Items.Add("Creation date")
+        cb_sort_order.ItemIndex = 0
+        cb_sort_order.Enabled = _multi
+
         lbl_columns = vcl.TLabel(Form)
         lbl_columns.Parent = Form
         lbl_columns.Caption = "Columns to Import:"
         lbl_columns.Left = 20
-        lbl_columns.Top = 342
+        lbl_columns.Top = 377
         lbl_columns.Font.Style = {"fsBold"}
         labels.append(lbl_columns)
 
-        # Select All / Deselect All buttons
         btn_select_all = vcl.TButton(Form)
         btn_select_all.Parent = Form
         btn_select_all.Caption = "Select All"
         btn_select_all.Left = 160
-        btn_select_all.Top = 338
+        btn_select_all.Top = 373
         btn_select_all.Width = 80
         btn_select_all.Height = 22
 
@@ -920,15 +652,14 @@ def import_csv(Action):
         btn_deselect_all.Parent = Form
         btn_deselect_all.Caption = "Deselect All"
         btn_deselect_all.Left = 250
-        btn_deselect_all.Top = 338
+        btn_deselect_all.Top = 373
         btn_deselect_all.Width = 80
         btn_deselect_all.Height = 22
 
-        # ScrollBox for column checkboxes
         scroll_box = vcl.TScrollBox(Form)
         scroll_box.Parent = Form
         scroll_box.Left = 20
-        scroll_box.Top = 367
+        scroll_box.Top = 402
         scroll_box.Width = 470
         scroll_box.Height = 200
         scroll_box.BorderStyle = "bsSingle"
@@ -946,9 +677,7 @@ def import_csv(Action):
         btn_deselect_all.OnClick = deselect_all_columns
 
         def refresh_columns(Sender):
-            """Detects and updates the list of available columns."""
             nonlocal column_checkboxes
-
             try:
                 has_header = chk_header.Checked
                 try:
@@ -956,7 +685,6 @@ def import_csv(Action):
                 except (ValueError, TypeError):
                     skip_rows_val = 0
 
-                # Determinar separador
                 sep_idx = cb_separator.ItemIndex
                 if sep_idx == 0:
                     separator = detect_separator(file_path, has_header, skip_rows_val)
@@ -971,19 +699,15 @@ def import_csv(Action):
                 else:
                     separator = ','
 
-                # Detectar columnas
                 headers, column_types, n_cols = detect_column_types(
                     file_path, has_header, separator, skip_rows_val)
 
-                # Count total rows
                 total_rows = count_data_rows(file_path, has_header, skip_rows_val)
 
-                # Clear existing checkboxes
                 for chk, _ in column_checkboxes:
                     chk.Free()
                 column_checkboxes = []
 
-                # Update X column combo
                 cb_x_column.Items.Clear()
                 cb_x_column.Items.Add("None (X = 0, 1, 2...)")
 
@@ -992,7 +716,6 @@ def import_csv(Action):
 
                 for i, (header, col_type) in enumerate(zip(headers, column_types)):
                     if col_type == 'ignore':
-                        # Show ignored columns with different style
                         chk = vcl.TCheckBox(Form)
                         chk.Parent = scroll_box
                         chk.Left = 10
@@ -1006,30 +729,23 @@ def import_csv(Action):
                         checkbox_top += 22
                     else:
                         type_indicator = " [datetime→s]" if col_type == 'datetime' else " [numeric]"
-
-                        # Add to X column combo
                         cb_x_column.Items.Add(f"{header}{type_indicator}")
                         usable_cols += 1
-
-                        # Create checkbox for column selection
                         chk = vcl.TCheckBox(Form)
                         chk.Parent = scroll_box
                         chk.Left = 10
                         chk.Top = checkbox_top
                         chk.Width = 430
                         chk.Caption = f"{header}{type_indicator}"
-                        chk.Checked = True  # Selected by default
+                        chk.Checked = True
                         column_checkboxes.append((chk, i))
                         checkbox_top += 22
 
                 cb_x_column.ItemIndex = 0
 
-                ignored = sum(1 for t in column_types if t == 'ignore')
-                status_msg = f"{usable_cols} cols, {total_rows} rows"
-                lbl_status.Caption = status_msg
+                lbl_status.Caption = f"{usable_cols} cols, {total_rows} rows"
                 lbl_status.Font.Color = 0x008800
 
-                # Save information for later use (in local variable)
                 detected_info[0] = {
                     'headers': headers,
                     'column_types': column_types,
@@ -1047,14 +763,17 @@ def import_csv(Action):
         btn_refresh.OnClick = refresh_columns
 
         def on_x_col_change(_):
-            edt_fs.Enabled = (cb_x_column.ItemIndex == 0)
+            is_row_index = (cb_x_column.ItemIndex == 0)
+            edt_fs.Enabled = is_row_index
+            chk_stack.Enabled = is_row_index and len(file_paths) > 1
+            lbl_sort.Enabled = is_row_index and len(file_paths) > 1
+            cb_sort_order.Enabled = is_row_index and len(file_paths) > 1
         cb_x_column.OnChange = on_x_col_change
 
-        # Help panel
         help_panel = vcl.TPanel(Form)
         help_panel.Parent = Form
         help_panel.Left = 20
-        help_panel.Top = 577
+        help_panel.Top = 612
         help_panel.Width = 470
         help_panel.Height = 75
         help_panel.BevelOuter = "bvLowered"
@@ -1069,30 +788,27 @@ def import_csv(Action):
         lbl_help_title.Font.Color = 0x804000
         labels.append(lbl_help_title)
 
-        help_text = (
+        lbl_help = vcl.TLabel(Form)
+        lbl_help.Parent = help_panel
+        lbl_help.Caption = (
             "• Select columns to import using checkboxes above\n"
             "• Decimation: keep 1 point per N rows (first/mean/median/min/max)\n"
             "• Row numbers are 1-based (row 1 = first data row after header)"
         )
-
-        lbl_help = vcl.TLabel(Form)
-        lbl_help.Parent = help_panel
-        lbl_help.Caption = help_text
         lbl_help.Left = 10
         lbl_help.Top = 22
         lbl_help.Font.Color = 0x804000
         labels.append(lbl_help)
 
-        # Graph title
         sep_gt = vcl.TBevel(Form)
         sep_gt.Parent = Form
-        sep_gt.Left = 10; sep_gt.Top = 662; sep_gt.Width = 490; sep_gt.Height = 2
+        sep_gt.Left = 10; sep_gt.Top = 697; sep_gt.Width = 490; sep_gt.Height = 2
         sep_gt.Shape = "bsTopLine"
 
         lbl_graph_title = vcl.TLabel(Form)
         lbl_graph_title.Parent = Form
         lbl_graph_title.Caption = "Graph title:"
-        lbl_graph_title.Left = 20; lbl_graph_title.Top = 675
+        lbl_graph_title.Left = 20; lbl_graph_title.Top = 710
         lbl_graph_title.Font.Style = {"fsBold"}
         labels.append(lbl_graph_title)
 
@@ -1101,17 +817,16 @@ def import_csv(Action):
             default_title += f" [{_start_utc}]"
         edt_graph_title = vcl.TEdit(Form)
         edt_graph_title.Parent = Form
-        edt_graph_title.Left = 110; edt_graph_title.Top = 672
+        edt_graph_title.Left = 110; edt_graph_title.Top = 707
         edt_graph_title.Width = 380; edt_graph_title.Text = default_title
 
-        # Buttons
         btn_ok = vcl.TButton(Form)
         btn_ok.Parent = Form
         btn_ok.Caption = "Import"
         btn_ok.ModalResult = 1
         btn_ok.Default = True
         btn_ok.Left = 150
-        btn_ok.Top = 704
+        btn_ok.Top = 739
         btn_ok.Width = 100
         btn_ok.Height = 30
 
@@ -1121,18 +836,16 @@ def import_csv(Action):
         btn_cancel.ModalResult = 2
         btn_cancel.Cancel = True
         btn_cancel.Left = 270
-        btn_cancel.Top = 704
+        btn_cancel.Top = 739
         btn_cancel.Width = 100
         btn_cancel.Height = 30
 
-        # Detectar columnas inicialmente
         refresh_columns(None)
 
         if Form.ShowModal() == 1:
             try:
                 has_header = chk_header.Checked
 
-                # Get saved information
                 tag_data = detected_info[0]
                 if not tag_data:
                     raise ValueError("Press 'Detect columns' first")
@@ -1142,9 +855,8 @@ def import_csv(Action):
                 column_types = tag_data['column_types']
                 skip_rows = tag_data.get('skip_rows', 0)
 
-                # Get row range options
                 try:
-                    start_row = int(edt_start_row.Text) - 1  # Convert to 0-based
+                    start_row = int(edt_start_row.Text) - 1
                     if start_row < 0:
                         start_row = 0
                 except ValueError:
@@ -1161,7 +873,6 @@ def import_csv(Action):
                 else:
                     row_limit = None
 
-                # Get decimation options
                 decimate_enabled = chk_decimate.Checked
                 try:
                     stride = max(2, int(edt_stride.Text))
@@ -1169,10 +880,8 @@ def import_csv(Action):
                     stride = 10
                 decimate_method = cb_decimate_method.ItemIndex
 
-                # Get NaN handling option
                 nan_handling = cb_nan_handling.ItemIndex
 
-                # Get selected columns
                 selected_columns = []
                 for chk, col_idx in column_checkboxes:
                     if chk.Checked and chk.Enabled:
@@ -1181,7 +890,6 @@ def import_csv(Action):
                 if not selected_columns:
                     raise ValueError("No columns selected for import")
 
-                # Determine X column index
                 x_selection = cb_x_column.ItemIndex
                 if x_selection == 0:
                     x_col_index = -1
@@ -1195,7 +903,6 @@ def import_csv(Action):
                                 x_col_index = i
                                 break
 
-                # Sampling frequency
                 try:
                     fs = float(edt_fs.Text)
                     if fs <= 0:
@@ -1203,12 +910,27 @@ def import_csv(Action):
                 except (ValueError, TypeError):
                     fs = 1.0
 
-                # ── Parse all files and merge same-named columns ──────────────
-                # merged_series: {name: {'x': np.array, 'y': np.array}}
-                merged_series = {}
-                series_order = []  # preserve insertion order
+                stack_enabled = (
+                    chk_stack.Checked
+                    and x_col_index == -1
+                    and len(file_paths) > 1
+                )
+                if stack_enabled:
+                    sort_by_date = (cb_sort_order.ItemIndex == 1)
+                    if sort_by_date:
+                        files_to_process = sorted(
+                            file_paths, key=lambda f: os.path.getmtime(f))
+                    else:
+                        files_to_process = sorted(
+                            file_paths, key=lambda f: os.path.basename(f).lower())
+                else:
+                    files_to_process = file_paths
 
-                for fp in file_paths:
+                merged_series = {}
+                series_order = []
+                x_stack_offset = 0.0
+
+                for fp in files_to_process:
                     try:
                         if decimate_enabled:
                             s_names, x_vals, y_cols, _ = parse_csv_decimated(
@@ -1234,7 +956,14 @@ def import_csv(Action):
                         show_error(f"Error parsing {os.path.basename(fp)}:\n{str(e)}", "Import CSV")
                         continue
 
-                    # Apply sampling frequency when using row index
+                    if stack_enabled:
+                        raw_count = count_data_rows(fp, has_header, skip_rows)
+                        imported_count = max(0, raw_count - start_row)
+                        if row_limit is not None:
+                            imported_count = min(imported_count, row_limit)
+                        x_vals = np.asarray(x_vals, dtype=float) + x_stack_offset
+                        x_stack_offset += imported_count
+
                     if x_col_index == -1 and fs != 1.0:
                         x_vals = np.asarray(x_vals, dtype=float) / fs
 
@@ -1252,7 +981,6 @@ def import_csv(Action):
                 if not merged_series:
                     raise ValueError("No data found in selected file(s)")
 
-                # ── Create Graph series ───────────────────────────────────────
                 series_created = 0
                 total_points = 0
 
@@ -1305,13 +1033,19 @@ def import_csv(Action):
                     mname = method_names[decimate_method] if decimate_method < len(method_names) else "?"
                     decimate_info = f"\nDecimation: 1/{stride} ({mname})"
 
+                stack_info = ""
+                if stack_enabled:
+                    sort_label = "creation date" if cb_sort_order.ItemIndex == 1 else "name"
+                    stack_info = f"\nStacking: sequential X (sorted by {sort_label})"
+
                 show_info(
                     f"Import completed.\n\n"
                     f"File(s): {files_str}\n"
                     f"Series imported: {series_created}\n"
                     f"Total points: {total_points}\n"
                     f"NaN handling: {nan_method}"
-                    f"{decimate_info}",
+                    f"{decimate_info}"
+                    f"{stack_info}",
                     "Import CSV"
                 )
 
@@ -1331,5 +1065,4 @@ ImportCSVAction = Graph.CreateAction(
     IconFile=os.path.join(os.path.dirname(__file__), "CSV_sm.png")
 )
 
-# Add action to Plugins menu
 Graph.AddActionToMainMenu(ImportCSVAction, TopMenu="Plugins", SubMenus=["Graphîa", "Import/Export"])

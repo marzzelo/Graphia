@@ -1,165 +1,22 @@
 # Plugin: CSV Envelope Plotter
-# Streams CSV file row-by-row computing max/min/mean envelope curves per period.
+# Streams CSV file(s) row-by-row computing max/min/mean envelope curves per period.
 # Memory complexity: O(period_size x n_cols) regardless of file size.
 import os
-import json
 import math
 from datetime import datetime
 
 from common import show_error, show_info, safe_color, SERIES_COLORS, Point, Graph, vcl
-
-PluginName = "CSV Envelope"
-PluginVersion = "1.0"
-PluginDescription = (
-    "Plots max/min/mean envelope curves from CSV signal columns "
-    "using streaming (low memory)."
+from importing.csv_utils import (
+    read_comment_header, try_parse_datetime, try_parse_number,
+    detect_separator, detect_column_types, count_data_rows,
 )
 
-def _read_comment_header(file_path):
-    """
-    Counts leading comment rows (lines starting with '#') and parses the first
-    comment line as JSON.  Returns (n_comment_rows, rate_hz_or_None, start_utc_or_None).
-    """
-    n_comments = 0
-    rate_hz = None
-    start_utc = None
-    try:
-        with open(file_path, 'r', encoding='utf-8-sig') as f:
-            for line in f:
-                stripped = line.rstrip('\n\r')
-                if stripped.startswith('#'):
-                    if n_comments == 0:
-                        try:
-                            data = json.loads(stripped[1:].strip())
-                            if isinstance(data, dict):
-                                if 'rate_hz' in data:
-                                    rate_hz = float(data['rate_hz'])
-                                if 'start_utc' in data:
-                                    start_utc = str(data['start_utc'])
-                        except (ValueError, KeyError, TypeError):
-                            pass
-                    n_comments += 1
-                else:
-                    break
-    except Exception:
-        pass
-    return n_comments, rate_hz, start_utc
-
-
-# ─── Detection utilities (copied from CSVImporter) ───────────────────────────
-
-DATETIME_FORMATS = [
-    "%Y-%m-%d %H:%M:%S.%f",
-    "%Y-%m-%d %H:%M:%S",
-    "%Y/%m/%d %H:%M:%S.%f",
-    "%Y/%m/%d %H:%M:%S",
-    "%d-%m-%Y %H:%M:%S.%f",
-    "%d-%m-%Y %H:%M:%S",
-    "%d/%m/%Y %H:%M:%S.%f",
-    "%d/%m/%Y %H:%M:%S",
-    "%Y-%m-%dT%H:%M:%S.%f",
-    "%Y-%m-%dT%H:%M:%S",
-    "%H:%M:%S.%f",
-    "%H:%M:%S",
-]
-
-
-def _try_parse_datetime(value):
-    value = value.strip().strip('"').strip("'")
-    for fmt in DATETIME_FORMATS:
-        try:
-            return datetime.strptime(value, fmt)
-        except ValueError:
-            continue
-    return None
-
-
-def _try_parse_number(value, separator):
-    value = value.strip().strip('"').strip("'")
-    try:
-        return float(value)
-    except ValueError:
-        pass
-    if separator != ',':
-        try:
-            return float(value.replace(',', '.'))
-        except ValueError:
-            pass
-    return None
-
-
-def _detect_separator(file_path, has_header, skip_rows=0):
-    separators = [',', ';', '\t', '|']
-    with open(file_path, 'r', encoding='utf-8-sig') as f:
-        all_lines = []
-        for i, line in enumerate(f):
-            if i >= 6 + skip_rows:
-                break
-            all_lines.append(line.rstrip('\n\r'))
-    if not all_lines:
-        return ','
-    all_lines = all_lines[skip_rows:]
-    if not all_lines:
-        return ','
-    # Skip header line — it may have a different column count than data rows
-    lines = all_lines[1:] if has_header and len(all_lines) > 1 else all_lines
-    best_sep, best_count = ',', 0
-    for sep in separators:
-        counts = [line.count(sep) for line in lines if line]
-        if counts and min(counts) > 0 and max(counts) == min(counts):
-            if counts[0] > best_count:
-                best_count = counts[0]
-                best_sep = sep
-    return best_sep
-
-
-def _detect_column_types(file_path, has_header, separator, skip_rows=0):
-    with open(file_path, 'r', encoding='utf-8-sig') as f:
-        lines = [line.rstrip('\n\r') for line in f if line.strip()]
-    if not lines:
-        raise ValueError("File is empty")
-    lines = lines[skip_rows:]
-    if not lines:
-        raise ValueError("No data after skipped rows")
-    start_idx = 0
-    headers = None
-    if has_header:
-        headers = [h.strip().strip('"').strip("'")
-                   for h in lines[0].split(separator)]
-        start_idx = 1
-    if start_idx >= len(lines):
-        raise ValueError("No data after header")
-    first_data = lines[start_idx].split(separator)
-    n_cols = len(first_data)
-    if headers is None:
-        headers = [str(i) for i in range(n_cols)]
-    sample = lines[start_idx:start_idx + min(10, len(lines) - start_idx)]
-    column_types = []
-    for col_idx in range(n_cols):
-        num_c = dt_c = empty_c = 0
-        for line in sample:
-            parts = line.split(separator)
-            if col_idx >= len(parts):
-                continue
-            v = parts[col_idx].strip().strip('"').strip("'")
-            if not v:
-                empty_c += 1
-                continue
-            if _try_parse_number(v, separator) is not None:
-                num_c += 1
-            elif _try_parse_datetime(v) is not None:
-                dt_c += 1
-        total = len(sample) - empty_c
-        if total > 0:
-            if num_c >= total * 0.8:
-                column_types.append('numeric')
-            elif dt_c >= total * 0.8:
-                column_types.append('datetime')
-            else:
-                column_types.append('ignore')
-        else:
-            column_types.append('ignore')
-    return headers, column_types, n_cols
+PluginName = "CSV Envelope"
+PluginVersion = "1.1"
+PluginDescription = (
+    "Plots max/min/mean envelope curves from one or more CSV signal columns "
+    "using streaming (low memory)."
+)
 
 
 # ─── X-range quick scan ───────────────────────────────────────────────────────
@@ -185,7 +42,6 @@ def _quick_scan_xrange(file_path, has_header, separator, x_col_idx, x_col_type, 
         file_size = f.tell()
         approx_total_rows = max(1, int(file_size / bytes_first * 0.9))
 
-        # Last ~4 KB
         seek_pos = max(pos_after, file_size - 4096)
         f.seek(seek_pos)
         tail = f.read()
@@ -196,14 +52,13 @@ def _quick_scan_xrange(file_path, has_header, separator, x_col_idx, x_col_type, 
             return None
         raw = parts[x_col_idx].strip().strip('"').strip("'")
         if x_col_type == 'datetime':
-            return _try_parse_datetime(raw)
-        return _try_parse_number(raw, separator)
+            return try_parse_datetime(raw)
+        return try_parse_number(raw, separator)
 
     x_first_raw = parse_x_from_line(first_line)
     if x_first_raw is None:
         return 0.0, 100.0, approx_total_rows, None
 
-    # Find last parseable line
     tail_lines = [l for l in tail.splitlines() if l.strip()]
     x_last_raw = None
     for line in reversed(tail_lines):
@@ -237,13 +92,13 @@ def _parse_x_val(parts, x_col_idx, x_col_type, separator, ref):
         return None
     raw = parts[x_col_idx].strip().strip('"').strip("'")
     if x_col_type == 'datetime':
-        dt = _try_parse_datetime(raw)
+        dt = try_parse_datetime(raw)
         if dt is None:
             return None
         if ref[0] is None:
             ref[0] = dt
         return (dt - ref[0]).total_seconds()
-    return _try_parse_number(raw, separator)
+    return try_parse_number(raw, separator)
 
 
 def _parse_y_val(parts, col_idx, separator):
@@ -253,7 +108,7 @@ def _parse_y_val(parts, col_idx, separator):
     raw = parts[col_idx].strip().strip('"').strip("'")
     if not raw or raw.lower() in ('nan', 'null', 'none', 'n/a', '#n/a'):
         return None
-    return _try_parse_number(raw, separator)
+    return try_parse_number(raw, separator)
 
 
 def _smooth(values, window):
@@ -287,7 +142,6 @@ def compute_envelope(file_path, has_header, separator,
     """
     One-pass streaming envelope computation.
 
-    win_rows: list of (x, [y0_or_None, y1_or_None, ...]) — one entry per row.
     Memory: O(period_size × n_cols) at any moment.
 
     Parameters
@@ -306,16 +160,14 @@ def compute_envelope(file_path, has_header, separator,
     col_lower = [[] for _ in range(n_y)]
     col_mean  = [[] for _ in range(n_y)] if include_mean else None
 
-    ref = [first_datetime_ref]   # mutable container for datetime ref
+    ref = [first_datetime_ref]
     use_row_index = (x_col_idx is None or x_col_idx < 0)
 
-    # step = how far the window advances after each flush
     step_frac   = max(0.0, min(0.9, overlap_frac))
-    period_int  = max(1, int(period))      # used for sample-based only
+    period_int  = max(1, int(period))
     step_rows   = max(1, int(period_int * (1.0 - step_frac)))
     step_time   = max(1e-12, period * (1.0 - step_frac))
 
-    # win_rows stores complete rows as (x, [y0_or_None, ...])
     win_rows       = []
     window_start_x = None
     row_count      = 0
@@ -360,7 +212,6 @@ def compute_envelope(file_path, has_header, separator,
                 continue
             parts = line.split(separator)
 
-            # Determine x for this row
             if use_row_index:
                 x = float(row_count) / fs
             else:
@@ -373,7 +224,6 @@ def compute_envelope(file_path, has_header, separator,
             if window_start_x is None:
                 window_start_x = x
 
-            # Check if window is full
             if use_time_based:
                 exceeded = x >= window_start_x + period
             else:
@@ -384,7 +234,6 @@ def compute_envelope(file_path, has_header, separator,
 
                 if use_time_based:
                     window_start_x += step_time
-                    # Keep only rows within the new window
                     win_rows = [r for r in win_rows if r[0] >= window_start_x]
                     exceeded = x >= window_start_x + period
                 else:
@@ -392,17 +241,14 @@ def compute_envelope(file_path, has_header, separator,
                     window_start_x = win_rows[0][0] if win_rows else x
                     exceeded = len(win_rows) >= period_int
 
-            # Parse Y values (None where missing/NaN)
             y_vals = [_parse_y_val(parts, col_idx, separator)
                       for col_idx in y_col_indices]
 
             win_rows.append((x, y_vals))
 
-    # Flush last (possibly partial) window
     if win_rows:
         _flush_window(win_rows)
 
-    # Post-processing: smoothing over envelope points
     if smooth_window > 1:
         for i in range(n_y):
             col_upper[i] = _smooth(col_upper[i], smooth_window)
@@ -419,22 +265,32 @@ def plot_envelope(Action):
     """Entry point: file dialog → config dialog → compute → add series."""
 
     open_dialog = vcl.TOpenDialog(None)
-    open_dialog.Title = "Select CSV file for Envelope"
+    open_dialog.Title = "Select CSV file(s) for Envelope"
     open_dialog.Filter = (
         "CSV files (*.csv)|*.csv|Text files (*.txt)|*.txt|All files (*.*)|*.*"
     )
     open_dialog.FilterIndex = 1
-    open_dialog.Options = "ofFileMustExist,ofHideReadOnly"
+    open_dialog.Options = "ofFileMustExist,ofHideReadOnly,ofAllowMultiSelect"
 
     if not open_dialog.Execute():
         return
 
-    file_path = open_dialog.FileName
-    if not os.path.exists(file_path):
-        show_error(f"File not found:\n{file_path}", "CSV Envelope")
+    # Collect file list (multi-select or single)
+    try:
+        file_paths = [open_dialog.Files[i] for i in range(open_dialog.Files.Count)]
+        if not file_paths:
+            file_paths = [open_dialog.FileName]
+    except Exception:
+        file_paths = [open_dialog.FileName]
+
+    file_paths = [p for p in file_paths if p and os.path.exists(p)]
+    if not file_paths:
+        show_error("No valid files selected.", "CSV Envelope")
         return
 
-    _n_comments, _rate_hz, _start_utc = _read_comment_header(file_path)
+    # Use first file for column detection / UI
+    file_path = file_paths[0]
+    _n_comments, _rate_hz, _start_utc = read_comment_header(file_path)
 
     detected_info = [None]
     column_checkboxes = []   # list of (TCheckBox, col_index, col_name)
@@ -470,9 +326,14 @@ def plot_envelope(Action):
         lbl_title.Font.Color = 0x804000
         lbl_title.Font.Size = 10
 
+        if len(file_paths) == 1:
+            file_info_caption = os.path.basename(file_path)
+        else:
+            file_info_caption = f"{len(file_paths)} files selected (first: {os.path.basename(file_path)})"
+
         lbl_file_info = vcl.TLabel(Form)
         lbl_file_info.Parent = title_panel
-        lbl_file_info.Caption = os.path.basename(file_path)
+        lbl_file_info.Caption = file_info_caption
         lbl_file_info.Left = 10
         lbl_file_info.Top = 28
         lbl_file_info.Font.Color = 0x804000
@@ -604,6 +465,39 @@ def plot_envelope(Action):
 
         y_top += 32
 
+        # ── Multi-file stacking ──────────────────────────────────────────────
+        _multi = len(file_paths) > 1
+
+        sep_stack = vcl.TBevel(Form)
+        sep_stack.Parent = Form
+        sep_stack.Left = 10; sep_stack.Top = y_top; sep_stack.Width = 500; sep_stack.Height = 2
+        sep_stack.Shape = "bsTopLine"
+        y_top += 8
+
+        chk_stack = vcl.TCheckBox(Form)
+        chk_stack.Parent = Form
+        chk_stack.Caption = "Stack datasets on X axis"
+        chk_stack.Left = 15; chk_stack.Top = y_top
+        chk_stack.Width = 190; chk_stack.Checked = _multi
+        chk_stack.Enabled = _multi
+
+        lbl_sort = vcl.TLabel(Form)
+        lbl_sort.Parent = Form
+        lbl_sort.Caption = "Sort by:"
+        lbl_sort.Left = 215; lbl_sort.Top = y_top + 3
+        lbl_sort.Enabled = _multi
+
+        cb_sort_order = vcl.TComboBox(Form)
+        cb_sort_order.Parent = Form
+        cb_sort_order.Left = 263; cb_sort_order.Top = y_top
+        cb_sort_order.Width = 120; cb_sort_order.Style = "csDropDownList"
+        cb_sort_order.Items.Add("Name")
+        cb_sort_order.Items.Add("Creation date")
+        cb_sort_order.ItemIndex = 0
+        cb_sort_order.Enabled = _multi
+
+        y_top += 30
+
         # ── Y columns ───────────────────────────────────────────────────────
         sep2 = vcl.TBevel(Form)
         sep2.Parent = Form
@@ -719,7 +613,6 @@ def plot_envelope(Action):
 
         y_top += 28
 
-        # Overlap
         lbl_overlap = vcl.TLabel(Form)
         lbl_overlap.Parent = Form
         lbl_overlap.Caption = "Window overlap:"
@@ -752,7 +645,6 @@ def plot_envelope(Action):
         lbl_stats.Font.Style = {"fsBold"}
         y_top += 22
 
-        # Percentiles
         lbl_pct_lo = vcl.TLabel(Form)
         lbl_pct_lo.Parent = Form
         lbl_pct_lo.Caption = "Lower percentile:"
@@ -789,7 +681,6 @@ def plot_envelope(Action):
 
         y_top += 26
 
-        # Mean curve checkbox
         chk_mean = vcl.TCheckBox(Form)
         chk_mean.Parent = Form
         chk_mean.Caption = "Also plot mean curve per period"
@@ -797,7 +688,6 @@ def plot_envelope(Action):
         chk_mean.Width = 280; chk_mean.Checked = False
         y_top += 26
 
-        # X position
         lbl_xpos = vcl.TLabel(Form)
         lbl_xpos.Parent = Form
         lbl_xpos.Caption = "Envelope point X:"
@@ -813,7 +703,6 @@ def plot_envelope(Action):
         cb_xpos.ItemIndex = 0
         y_top += 26
 
-        # Smoothing
         lbl_smooth = vcl.TLabel(Form)
         lbl_smooth.Parent = Form
         lbl_smooth.Caption = "Post-smooth window:"
@@ -851,7 +740,6 @@ def plot_envelope(Action):
         lbl_shading_color.Caption = "Shading color:"
         lbl_shading_color.Left = 25; lbl_shading_color.Top = y_top + 3
 
-        # Prefer a TColorBox picker; fall back to a hex TEdit if unavailable.
         clr_shading_is_edit = [False]
         try:
             clr_shading = vcl.TColorBox(Form)
@@ -960,7 +848,7 @@ def plot_envelope(Action):
                     skip_rows_val = 0
                 sep_idx = cb_separator.ItemIndex
                 if sep_idx == 0:
-                    sep = _detect_separator(file_path, has_header, skip_rows_val)
+                    sep = detect_separator(file_path, has_header, skip_rows_val)
                 elif sep_idx == 1:
                     sep = ','
                 elif sep_idx == 2:
@@ -970,18 +858,16 @@ def plot_envelope(Action):
                 else:
                     sep = '|'
 
-                headers, col_types, n_cols = _detect_column_types(
+                headers, col_types, n_cols = detect_column_types(
                     file_path, has_header, sep, skip_rows_val)
 
-                # Clear old checkboxes
                 for chk, _, __ in column_checkboxes:
                     chk.Free()
                 column_checkboxes = []
 
-                # Rebuild X combo
                 cb_x_column.Items.Clear()
                 cb_x_column.Items.Add("(none — use row index)")
-                x_map = [(None, None)]  # index 0 = none
+                x_map = [(None, None)]
 
                 chk_top = 5
                 for i, (hdr, ctype) in enumerate(zip(headers, col_types)):
@@ -1014,7 +900,6 @@ def plot_envelope(Action):
                 cb_x_column.ItemIndex = 1 if len(x_map) > 1 else 0
                 x_col_map[0] = x_map
 
-                # Estimate X range for default period
                 x_sel = cb_x_column.ItemIndex
                 if x_sel > 0 and x_sel < len(x_map):
                     xi, xtype = x_map[x_sel]
@@ -1057,7 +942,13 @@ def plot_envelope(Action):
                     'approx_rows': _approx_rows,
                     'skip_rows': skip_rows_val,
                 }
-                edt_fs.Enabled = (cb_x_column.ItemIndex == 0)
+
+                is_row_index = (cb_x_column.ItemIndex == 0)
+                edt_fs.Enabled = is_row_index
+                if _multi:
+                    chk_stack.Enabled = is_row_index
+                    lbl_sort.Enabled = is_row_index
+                    cb_sort_order.Enabled = is_row_index
 
             except Exception as e:
                 lbl_status.Caption = f"Error: {str(e)[:40]}"
@@ -1081,7 +972,12 @@ def plot_envelope(Action):
             xi, xtype = None, 'numeric'
             if x_sel > 0 and x_sel < len(xmap):
                 xi, xtype = xmap[x_sel]
-            edt_fs.Enabled = (xi is None)
+            is_row_index = (xi is None)
+            edt_fs.Enabled = is_row_index
+            if _multi:
+                chk_stack.Enabled = is_row_index
+                lbl_sort.Enabled = is_row_index
+                cb_sort_order.Enabled = is_row_index
             if xi is not None:
                 try:
                     xf, xl, ar, _ = _quick_scan_xrange(
@@ -1105,7 +1001,7 @@ def plot_envelope(Action):
         btn_detect.OnClick = refresh_columns
         cb_x_column.OnChange = _update_defaults
         edt_points.OnChange = _update_defaults
-        refresh_columns(None)   # auto-detect on open
+        refresh_columns(None)
 
         # ── Modal dialog ─────────────────────────────────────────────────────
         if Form.ShowModal() != 1:
@@ -1119,11 +1015,9 @@ def plot_envelope(Action):
         info       = detected_info[0]
         sep        = info['separator']
         col_types  = info['col_types']
-        headers    = info['headers']
         has_header = chk_header.Checked
         skip_rows  = info.get('skip_rows', 0)
 
-        # X column
         x_sel = cb_x_column.ItemIndex
         xmap  = x_col_map[0] or [(None, None)]
         if x_sel > 0 and x_sel < len(xmap):
@@ -1131,7 +1025,6 @@ def plot_envelope(Action):
         else:
             x_col_idx, x_col_type = None, 'numeric'
 
-        # Y columns
         y_col_indices = []
         y_col_names   = []
         for chk, col_idx, col_name in column_checkboxes:
@@ -1175,13 +1068,11 @@ def plot_envelope(Action):
                 show_error("Period must be a positive number.", "CSV Envelope")
                 return
 
-        # Overlap
         try:
             overlap_frac = max(0.0, min(0.9, float(edt_overlap.Text) / 100.0))
         except ValueError:
             overlap_frac = 0.0
 
-        # Percentiles
         try:
             pct_lo = max(0.0, min(100.0, float(edt_pct_lo.Text)))
             pct_hi = max(0.0, min(100.0, float(edt_pct_hi.Text)))
@@ -1191,25 +1082,21 @@ def plot_envelope(Action):
         except ValueError:
             pct_lo, pct_hi = 0.0, 100.0
 
-        # X position
         xpos_map = {0: 'center', 1: 'start', 2: 'end'}
         x_pos = xpos_map.get(cb_xpos.ItemIndex, 'center')
 
         include_mean = chk_mean.Checked
 
-        # Smooth
         try:
             smooth_window = max(1, int(edt_smooth.Text))
         except ValueError:
             smooth_window = 1
 
-        # Sampling frequency (for row index mode)
         try:
             fs = max(1e-12, float(edt_fs.Text))
         except (ValueError, TypeError):
             fs = 1.0
 
-        # Shading band
         add_shading = chk_shading.Checked
         if clr_shading_is_edit[0]:
             try:
@@ -1224,7 +1111,8 @@ def plot_envelope(Action):
             except (ValueError, TypeError, OverflowError):
                 shading_color = 0xC0C0C0
 
-        # Quick pre-check: estimate rows per period
+        # Pre-check on first file (period sanity check)
+        first_dt_ref = None
         if x_col_idx is not None:
             try:
                 xf, xl, approx_rows, first_dt_ref = _quick_scan_xrange(
@@ -1245,38 +1133,76 @@ def plot_envelope(Action):
             except Exception:
                 first_dt_ref = None
         else:
-            first_dt_ref = None
-            x_col_idx    = None
+            x_col_idx = None
 
-        # ── Run computation ──────────────────────────────────────────────────
-        try:
-            x_pts, col_upper, col_lower, col_mean = compute_envelope(
-                file_path, has_header, sep,
-                x_col_idx if x_col_idx is not None else -1,
-                y_col_indices,
-                x_col_type,
-                period, use_time_based,
-                overlap_frac,
-                pct_lo, pct_hi,
-                x_pos,
-                include_mean,
-                smooth_window,
-                first_datetime_ref=first_dt_ref,
-                fs=fs,
-                skip_rows=skip_rows,
-            )
-        except Exception as e:
-            show_error(f"Error computing envelope:\n{str(e)}", "CSV Envelope")
-            return
+        # ── Determine file order ─────────────────────────────────────────────
+        stack_enabled = (
+            chk_stack.Checked
+            and (x_col_idx is None or x_col_idx < 0)
+            and len(file_paths) > 1
+        )
+        if stack_enabled:
+            sort_by_date = (cb_sort_order.ItemIndex == 1)
+            if sort_by_date:
+                files_to_process = sorted(file_paths, key=lambda f: os.path.getmtime(f))
+            else:
+                files_to_process = sorted(file_paths, key=lambda f: os.path.basename(f).lower())
+        else:
+            files_to_process = file_paths
+
+        # ── Run computation across all files ─────────────────────────────────
+        all_x_pts    = []
+        all_col_upper = [[] for _ in y_col_indices]
+        all_col_lower = [[] for _ in y_col_indices]
+        all_col_mean  = [[] for _ in y_col_indices] if include_mean else None
+
+        x_offset = 0.0
+        for fp in files_to_process:
+            try:
+                x_pts_f, col_upper_f, col_lower_f, col_mean_f = compute_envelope(
+                    fp, has_header, sep,
+                    x_col_idx if x_col_idx is not None else -1,
+                    y_col_indices,
+                    x_col_type,
+                    period, use_time_based,
+                    overlap_frac,
+                    pct_lo, pct_hi,
+                    x_pos,
+                    include_mean,
+                    smooth_window,
+                    first_datetime_ref=None,  # each file is self-referential
+                    fs=fs,
+                    skip_rows=skip_rows,
+                )
+            except Exception as e:
+                show_error(f"Error in {os.path.basename(fp)}:\n{str(e)}", "CSV Envelope")
+                continue
+
+            if stack_enabled:
+                x_pts_f = [x + x_offset for x in x_pts_f]
+                n_rows = count_data_rows(fp, has_header, skip_rows)
+                x_offset += n_rows / fs
+
+            all_x_pts.extend(x_pts_f)
+            for i in range(len(y_col_indices)):
+                all_col_upper[i].extend(col_upper_f[i])
+                all_col_lower[i].extend(col_lower_f[i])
+            if include_mean and col_mean_f is not None and all_col_mean is not None:
+                for i in range(len(y_col_indices)):
+                    all_col_mean[i].extend(col_mean_f[i])
+
+        x_pts    = all_x_pts
+        col_upper = all_col_upper
+        col_lower = all_col_lower
+        col_mean  = all_col_mean
 
         if not x_pts:
-            show_error("No envelope points produced. Check file and settings.", "CSV Envelope")
+            show_error("No envelope points produced. Check files and settings.", "CSV Envelope")
             return
 
         # ── Create series ────────────────────────────────────────────────────
         series_created = 0
         shadings_created = 0
-        n_cols_y = len(y_col_indices)
 
         lo_label = f"p{int(pct_lo)}" if pct_lo > 0   else "min"
         hi_label = f"p{int(pct_hi)}" if pct_hi < 100 else "max"
@@ -1315,17 +1241,11 @@ def plot_envelope(Action):
                 series_created += 1
                 made[role] = s
 
-            # Optional shading band between the upper and lower envelopes.
-            # A 1-period moving-average trendline turns each point series into a
-            # function; a "between functions" shading is then drawn between them.
             if add_shading and 'upper' in made and 'lower' in made:
                 try:
                     ma_up = made['upper'].CreateMovingAverage(1)
                     ma_lo = made['lower'].CreateMovingAverage(1)
 
-                    # CreateMovingAverage only *returns* the function — it must
-                    # be inserted into the graph explicitly (see Graph plugin
-                    # docs, TPointSeries.CreateModelTrendline example).
                     Graph.FunctionList.append(ma_up)
                     Graph.FunctionList.append(ma_lo)
 
@@ -1333,26 +1253,16 @@ def plot_envelope(Action):
                     sh.ShadeStyle = Graph.ssBetween
                     sh.Func2      = ma_lo
                     sh.Color      = shading_color
-                    # Leave Min/Max (Options From/To) and Min2/Max2 (2nd Function
-                    # From/To) unset/blank — setting explicit limits prevents the
-                    # "between functions" shading from drawing. Graph then shades
-                    # over the full overlapping domain automatically.
                     sh.LegendText   = f"{col_name} [envelope band]"
                     sh.ShowInLegend = False
                     ma_up.ChildList.append(sh)
 
-                    # The shading is a CHILD of the upper trendline, so that
-                    # trendline must stay visible for the band to render
-                    # (hiding it would hide the band too). Keep both trendlines
-                    # visible but styled to overlap the existing envelope curves
-                    # exactly — color-matched hairline, no legend entry — so no
-                    # duplicate curve is perceptible.
                     ma_up.Color = c_hi
                     ma_lo.Color = c_lo
                     for ma in (ma_up, ma_lo):
                         ma.ShowInLegend = False
                         try:
-                            ma.Size = 0      # hairline; Graph may clamp to 1px
+                            ma.Size = 0
                         except Exception:
                             pass
 
@@ -1369,18 +1279,26 @@ def plot_envelope(Action):
             Graph.Axes.Title = graph_title
             Graph.Update()
 
-        stats_lines = [f"  {n}: {len(x_pts)} pts" for n in y_col_names]
+        files_str = (os.path.basename(file_paths[0]) if len(file_paths) == 1
+                     else f"{len(file_paths)} files")
+
+        stack_info = ""
+        if stack_enabled:
+            sort_label = "creation date" if cb_sort_order.ItemIndex == 1 else "name"
+            stack_info = f"\nStacking: sequential X (sorted by {sort_label})"
+
         shading_line = f"Shading bands: {shadings_created}\n" if add_shading else ""
         show_info(
             f"Envelope plotted.\n\n"
-            f"File: {os.path.basename(file_path)}\n"
+            f"File(s): {files_str}\n"
             f"Series created: {series_created}\n"
             f"{shading_line}"
             f"Envelope points: {len(x_pts)}\n"
             f"Period: {period:.4g} {'s' if use_time_based else ' rows'}"
             f"{'  overlap: ' + str(int(overlap_frac*100)) + '%' if overlap_frac > 0 else ''}\n"
             f"Percentiles: {int(pct_lo)}%–{int(pct_hi)}%"
-            f"{'  + mean' if include_mean else ''}",
+            f"{'  + mean' if include_mean else ''}"
+            f"{stack_info}",
             "CSV Envelope"
         )
 
@@ -1395,7 +1313,7 @@ _icon_path = os.path.join(os.path.dirname(__file__), "CSVEnvelope_sm.png")
 CSVEnvelopeAction = Graph.CreateAction(
     Caption="CSV Envelope...",
     OnExecute=plot_envelope,
-    Hint="Plots streaming max/min envelope curves from CSV files (low memory).",
+    Hint="Plots streaming max/min envelope curves from one or more CSV files (low memory).",
     ShortCut="",
     IconFile=_icon_path if os.path.exists(_icon_path) else "",
 )
