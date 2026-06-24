@@ -38,13 +38,22 @@ def apply_function_to_series(Action):
         return
 
     n_points = len(y_vals)
-    x_min = min(x_vals)
-    x_max = max(x_vals)
-    y_min = min(y_vals)
-    y_max = max(y_vals)
 
     # All visible series are candidate targets
     visible_series = get_visible_point_series()
+
+    # Default range covers ALL visible series so any target selection is within range
+    all_x = list(x_vals)
+    all_y = list(y_vals)
+    for vs in visible_series:
+        if vs != series:
+            vx, vy = get_series_data(vs)
+            all_x.extend(vx)
+            all_y.extend(vy)
+    x_min = min(all_x)
+    x_max = max(all_x)
+    y_min = min(all_y)
+    y_max = max(all_y)
 
     # Create form
     Form = vcl.TForm(None)
@@ -176,7 +185,7 @@ def apply_function_to_series(Action):
         edt_x_min.Left = 70
         edt_x_min.Top = y
         edt_x_min.Width = 100
-        edt_x_min.Text = f"{x_min:.6g}"
+        edt_x_min.Text = f"{x_min:.15g}"
 
         lbl_xto = vcl.TLabel(Form)
         lbl_xto.Parent = Form
@@ -190,7 +199,7 @@ def apply_function_to_series(Action):
         edt_x_max.Left = 205
         edt_x_max.Top = y
         edt_x_max.Width = 100
-        edt_x_max.Text = f"{x_max:.6g}"
+        edt_x_max.Text = f"{x_max:.15g}"
         y += 30
 
         # Y range
@@ -206,7 +215,7 @@ def apply_function_to_series(Action):
         edt_y_min.Left = 70
         edt_y_min.Top = y
         edt_y_min.Width = 100
-        edt_y_min.Text = f"{y_min:.6g}"
+        edt_y_min.Text = f"{y_min:.15g}"
 
         lbl_yto = vcl.TLabel(Form)
         lbl_yto.Parent = Form
@@ -220,7 +229,7 @@ def apply_function_to_series(Action):
         edt_y_max.Left = 205
         edt_y_max.Top = y
         edt_y_max.Width = 100
-        edt_y_max.Text = f"{y_max:.6g}"
+        edt_y_max.Text = f"{y_max:.15g}"
         y += 32
 
         # Separator
@@ -396,6 +405,11 @@ def apply_function_to_series(Action):
                 range_y_min = float(edt_y_min.Text)
                 range_y_max = float(edt_y_max.Text)
 
+                # Relative epsilon prevents boundary points from being excluded
+                # due to floating-point round-trips through text fields
+                x_eps = max(abs(range_x_max - range_x_min) * 1e-9, 1e-300)
+                y_eps = max(abs(range_y_max - range_y_min) * 1e-9, 1e-300)
+
                 # Collect selected target series
                 targets = [s for chk, s in series_checks if chk.Checked]
                 if not targets:
@@ -422,7 +436,8 @@ def apply_function_to_series(Action):
                     new_y_vals = []
 
                     for x, y_val in zip(t_x, t_y):
-                        in_range = (range_x_min <= x <= range_x_max) and (range_y_min <= y_val <= range_y_max)
+                        in_range = (range_x_min - x_eps <= x <= range_x_max + x_eps) and \
+                                   (range_y_min - y_eps <= y_val <= range_y_max + y_eps)
 
                         if in_range:
                             try:
